@@ -66,8 +66,13 @@ _MESSAGES = {
     "invalid_invitation": "The friend invitation could not be verified.",
     "enrollment_required": "This character needs the separate first-enrollment workflow.",
     "pending_battle": "An unresolved battle requires explicit recovery before launch.",
-    "battle_abandoning": "Abandoning the interrupted battle: nobody wins or loses it.",
+    "battle_abandoning": "Abandoning the interrupted battle.",
     "battle_abandoned": "The interrupted battle was abandoned with no result. Your game continues from your last save.",
+    # The owner's decision #61 (battle_abandonment.py): a battle together that a game left counts as the team's loss.
+    "battle_abandoned_lost": "The interrupted battle together counts as a loss for your team: a game left it. "
+                             "Your game continues from your last save.",
+    "battle_reconnect_wait": "Your teammate's game may still reconnect. A battle together can be abandoned 3 minutes "
+                             "after your teammate left; it then counts as a loss for your team.",
     "battle_abandon_unavailable": "There is no interrupted battle to abandon right now.",
     "battle_abandon_unsupported": "The host's version cannot abandon an interrupted battle.",
     "battle_abandon_failed": "The interrupted battle could not be abandoned now. Check the connection to the host and try again.",
@@ -135,6 +140,12 @@ class LauncherSessionError(ValueError):
         self.cause = cause[:300] if type(cause) is str and cause else None
         self.cause_name = self.cause.split(":", 1)[0] if self.cause else None
         super().__init__(_MESSAGES[self.code])
+
+
+def abandoned_code(views):
+    """The status after interrupted battles were abandoned: a battle together that a game left counts as the team's loss
+    (the host's answer names who left; the owner's decision #61), any other one has no result."""
+    return "battle_abandoned_lost" if any(view.get("left") for view in views) else "battle_abandoned"
 
 
 def failure_name(error):
@@ -1046,7 +1057,7 @@ class LauncherSession:
                     self._saved_revision, self._saved_at = self._revision, None
                     recovered_trade = getattr(game.startup, "trade_result", None)
                     code = (("trade_recovered" if recovered_trade["state"] == "applied" else "trade_aborted_recovered")
-                            if recovered_trade else "battle_abandoned" if self._resolved_at_start
+                            if recovered_trade else abandoned_code(self._resolved_at_start) if self._resolved_at_start
                             else "soft_reset_done" if self._reset_at_start
                             else "unsaved_progress_set_aside" if getattr(game.startup, "emergency_set_aside", None)
                             else "running")
@@ -1154,7 +1165,8 @@ class LauncherSession:
         resolved = []
         for battle_id, generation in targets:
             try:
-                view = await resolve_battle(c, battle_id, generation)
+                # this character's game in that battle is gone: the host knows who left it (#61)
+                view = await resolve_battle(c, battle_id, generation, left=True)
             except ConnectionError:
                 raise
             except Exception as error:
@@ -1238,13 +1250,14 @@ class LauncherSession:
             await self._release_battle_core(game)
             for view in views:
                 retire_local_battle(self._profile_directory, view)
-            self._publish(SessionState.RUNNING, "battle_abandoned", revision=self._revision)
+            self._publish(SessionState.RUNNING, abandoned_code(views), revision=self._revision)
             return views
         except (Exception, asyncio.CancelledError) as error:
             if self._battle_abandoned is None:
                 code = getattr(error, "code", None)
                 code = code if code in ("battle_still_running", "battle_result_final", "battle_abandon_unsupported",
-                                        "connection_timeout", "connection_lost") else "battle_abandon_failed"
+                                        "battle_reconnect_wait", "connection_timeout",
+                                        "connection_lost") else "battle_abandon_failed"
                 self._publish(SessionState.RUNNING, code, revision=self._revision)
                 if isinstance(error, asyncio.CancelledError):
                     raise

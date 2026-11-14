@@ -19,8 +19,8 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from emerald_multiplayer.battle_abandonment import (
-    CLIENT_FORMAT, RECORD_FORMAT, SCOPE, abandonment_view, local_battle_targets, record_digest,
-    releases_journaled, retire_local_battle, validate_abandonment_view)
+    CLIENT_FORMAT, RECONNECT_GRACE_SECONDS, RECORD_FORMAT, SCOPE, abandonment_left, abandonment_view,
+    local_battle_targets, record_digest, releases_journaled, retire_local_battle, validate_abandonment_view)
 from emerald_multiplayer.battle_desk import BattleError
 from emerald_multiplayer.battle_execution import BattleExecutionService
 from emerald_multiplayer.battle_execution_protocol import decode_control, encode_control
@@ -84,6 +84,38 @@ class AbandonmentProtocolTests(unittest.TestCase):
         validate_battle_reply(reply, actor, world, 3, request)
         with self.assertRaises(ProtocolError):
             validate_battle_reply(dict(reply, operation="history"), actor, world, 3)
+
+
+class LeftProtocolTests(unittest.TestCase):
+    """#61: an abandonment request may say its own game left; an answer names who left an abandoned battle together."""
+
+    def test_the_request_carries_left_only_as_true_and_only_to_abandon(self):
+        base = dict(type="battle_abandon", request_id=str(uuid4()), session_epoch=3, battle_id=str(uuid4()),
+                    generation=str(uuid4()))
+        validate_battle_request(dict(base, left=True), 3)
+        validate_battle_request(base, 3)
+        for bad in (False, 1, "yes", None):
+            with self.assertRaises(ProtocolError):
+                validate_battle_request(dict(base, left=bad), 3)
+        with self.assertRaises(ProtocolError):
+            validate_battle_request(dict(base, type="battle_fate", left=True), 3)
+
+    def test_an_answer_names_only_players_of_an_abandoned_battle(self):
+        players = [str(uuid4()), str(uuid4())]
+        battle, generation = str(uuid4()), str(uuid4())
+        request = dict(battle_id=battle, generation=generation)
+        view = abandonment_view(battle, generation, "abandoned", players, "a" * 64, [players[1]])
+        self.assertEqual(validate_abandonment_view(view, players[0], request)["left"], [players[1]])
+        for left in ([str(uuid4())], [players[1], players[1]], sorted(players, reverse=True), "x"):
+            with self.assertRaises(ProtocolError):
+                validate_abandonment_view(dict(view, left=left), players[0], request)
+        with self.assertRaises(ProtocolError):           # nobody left a battle that was not abandoned
+            validate_abandonment_view(abandonment_view(battle, generation, "closed", players, "a" * 64, [players[1]]),
+                                      players[0], request)
+        legacy = dict(view)
+        del legacy["left"]
+        with self.assertRaises(ProtocolError):           # same version required (MS-28): the field is always there
+            validate_abandonment_view(legacy, players[0], request)
 
 
 class JournalTailTests(unittest.TestCase):
@@ -240,6 +272,7 @@ class AbandonNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["type"], "battle_result", reply)
         view = reply["result"]
         self.assertEqual((view["state"], view["players"]), ("abandoned", list(self.view["players"])))
+        self.assertEqual(view["left"], [])                          # a battle between players: no result (#61 aside)
         row = self.row()
         record = json.loads((self.root / "execution" / (self.battle_id + ".abandoned.json")).read_bytes())
         self.assertEqual((row["terminal_kind"], row["terminal_digest"]), ("aborted", record_digest(record)))
@@ -382,6 +415,80 @@ class AbandonNetworkTests(unittest.IsolatedAsyncioTestCase):
             self.generation = self.view["generation"]
         self.store.integrity_check()
 
+    # The owner's decision #61 (2026-11-14): closing the game is not a free retry of a battle together, and a genuine
+    # disconnect gets time to come back. Before it, every abandonment below had no result.
+    def coop(self):
+        """A started battle together: a co-op Gym battle of players 0 and 1, bound by both (its durable reservation)."""
+        self.desk.cancel(*self.actor(0), self.battle_id, self.generation)
+        self.battle_id = str(uuid4())
+        self.view = self.desk.invite_coop(*self.actor(0), self.players[1].player_id, 1, self.battle_id)
+        self.generation = self.view["generation"]
+        self.register()
+        self.bind(0)
+        self.bind(1)
+
+    def left_named(self):
+        terminal = self.server._battle_reservations.terminal(self.battle_id)
+        return abandonment_left(self.server, self.battle_id, terminal)
+
+    async def test_a_battle_together_left_by_a_closed_game_names_the_player_who_left(self):
+        self.enable()
+        self.coop()
+        await self.leave(1)
+        # the leaver's launcher, before its new game starts: its own game left the battle
+        self.actors[1] = await Actor.connect(self.server.address, self.players[1])
+        reply = await self.actors[1].rpc("battle_abandon", battle_id=self.battle_id, generation=self.generation,
+                                         left=True)
+        view = reply["result"]
+        leaver = self.players[1].player_id
+        self.assertEqual((view["state"], view["left"]), ("abandoned", [leaver]))
+        record = json.loads((self.root / "execution" / (self.battle_id + ".abandoned.json")).read_bytes())
+        self.assertEqual((record["left"], record["requested_by"]), ([leaver], leaver))
+        self.assertEqual(self.left_named(), [leaver])               # what the Tower Duo and the ladders settle as a loss
+        self.assertEqual((await self.ask(0, "fate"))["result"], view)     # the teammate who stayed reads the same
+        self.assertEqual(self.server._battle_reservations.waiting(*self.actor(0)), [])
+        self.store.integrity_check()
+
+    async def test_a_teammate_waits_for_a_disconnected_game_then_the_battle_is_the_teams_loss(self):
+        self.enable()
+        self.coop()
+        await self.leave(1)
+        reply = await self.ask(0)                                   # too soon: the teammate's game may come back
+        self.assertEqual((reply["type"], reply["code"]), ("battle_error", "battle_reconnect_wait"))
+        self.assertIsNone(self.row()["terminal_kind"])               # nothing changed: the battle can still recover
+        self.assertEqual((await self.ask(0, "fate"))["result"]["state"], "unresolved")
+        self.assertFalse((self.root / "execution" / (self.battle_id + ".abandoned.json")).exists())
+        # the reconnection time passes with the teammate still away
+        teammate = self.players[1].player_id
+        self.server._departures[teammate] -= RECONNECT_GRACE_SECONDS
+        view = (await self.ask(0))["result"]
+        self.assertEqual((view["state"], view["left"]), ("abandoned", [teammate]))
+        self.assertEqual(self.left_named(), [teammate])
+        self.store.integrity_check()
+
+    async def test_a_battle_together_abandoned_with_both_players_there_names_nobody(self):
+        # the teammate's connection came back (a new lease) but the battle could not go on: nobody chose to leave, so it
+        # stays void as before (the route failed with both players there)
+        self.enable()
+        self.coop()
+        await self.leave(1)
+        self.actors[1] = await Actor.connect(self.server.address, self.players[1])
+        view = (await self.ask(0))["result"]
+        self.assertEqual((view["state"], view["left"]), ("abandoned", []))
+        self.assertEqual(self.left_named(), [])
+
+    async def test_a_battle_between_players_keeps_no_result_even_when_its_leaver_says_so(self):
+        self.enable()
+        self.register()
+        self.bind(0)
+        self.bind(1)
+        await self.leave(1)
+        self.actors[1] = await Actor.connect(self.server.address, self.players[1])
+        reply = await self.actors[1].rpc("battle_abandon", battle_id=self.battle_id, generation=self.generation,
+                                         left=True)
+        self.assertEqual((reply["result"]["state"], reply["result"]["left"]), ("abandoned", []))
+        self.assertEqual(self.left_named(), [])
+
     async def test_after_a_host_restart_the_durable_reservation_is_abandoned(self):
         self.enable()
         self.accept()
@@ -494,7 +601,9 @@ class LauncherAbandonTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolved, [self.view])
         self.assertFalse(self.pending.exists())
         self.assertTrue((self.session._profile_directory / (self.intent.battle_id + ".battle-abandoned.json")).exists())
-        self.assertIn(("abandon", dict(battle_id=self.intent.battle_id, generation=self.intent.generation)), self.calls)
+        # its game in that battle is gone: the request says so (the owner's decision #61)
+        self.assertIn(("abandon", dict(battle_id=self.intent.battle_id, generation=self.intent.generation, left=True)),
+                      self.calls)
 
     async def test_a_cold_start_also_resolves_a_reservation_without_a_local_intent(self):
         self.pending.unlink()

@@ -238,14 +238,15 @@ class TowerBook:
         with self._transaction():
             self._settle(ticket, outcome, choose, forfeit)
             if ticket["duo_id"] is not None:
-                self._settle_partners(ticket, outcome, choose)
+                self._settle_partners(ticket, outcome, choose, forfeit)
         return self.ticket(ticket_id)
 
-    def _settle_partners(self, ticket: dict, outcome: str, choose) -> None:
-        """A Duo battle settles every player's ticket on the agreed result, then the session goes on to the next floor."""
+    def _settle_partners(self, ticket: dict, outcome: str, choose, forfeit: bool = False) -> None:
+        """A Duo battle settles every player's ticket on the agreed result, then the session goes on to the next floor
+        (``forfeit``: a Duo battle abandoned because a game left it, a loss for both - the owner's decision #61)."""
         for other in self.tickets_of_battle(ticket["battle_id"]):
             if other["ticket_id"] != ticket["ticket_id"] and other["state"] in OPEN:
-                self._settle(other, outcome, choose, False)
+                self._settle(other, outcome, choose, forfeit)
         duo = self.duo(ticket["duo_id"])
         if duo is not None:
             rows = [self.player(p) for p in duo["players"]]

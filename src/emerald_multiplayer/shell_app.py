@@ -1250,7 +1250,7 @@ class ShellApp:
                 if state["cleanup"]:
                     screen.row("cancel_battle", "Cancel battle entry", "", "w")
                 if state["abandon"]:
-                    screen.row("abandon_battle", "Abandon interrupted battle", "nobody wins; your game restarts", "w")
+                    screen.row("abandon_battle", "Abandon interrupted battle", "your game restarts from your last save", "w")
                 if state["restart"]:
                     screen.row("restart_host", "Restart host service", "", "w")
                 if state["trade"]:
@@ -1346,8 +1346,10 @@ class ShellApp:
 
     def _confirm_abandon(self):
         return self.confirm("Abandon interrupted battle",
-                            "The battle ends for everybody with no result: nobody wins or loses, and no wager or reward "
-                            "is paid.\nYour game restarts from your last save, with the party it had before the battle.",
+                            "A battle between players ends for everybody with no result: nobody wins or loses, and no "
+                            "wager or reward is paid. A battle together (a co-op Gym, the Tower Duo, a Frontier or League "
+                            "run) counts as a loss for your team if a game left it, as giving up does.\nYour game restarts "
+                            "from your last save, with the party it had before the battle.",
                             "Abandon the battle", "Back", warn=True)
 
     @staticmethod

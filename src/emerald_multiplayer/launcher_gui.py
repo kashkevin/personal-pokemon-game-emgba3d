@@ -91,8 +91,12 @@ _TEXT = {
     "battle_recovery_held": "Battle recovery could not finish. Keep this game open, restore the host connection, then try Recover battle again.",
     "battle_recovery_not_ready": "This waiting battle cannot recover yet. Keep its original game window open.",
     "battle_recovered": "Battle finished after recovery. Your party is restored and saving is available again.",
-    "battle_abandoning": "Abandoning the interrupted battle. Nobody wins or loses it; your game restarts from your last save.",
+    "battle_abandoning": "Abandoning the interrupted battle; your game restarts from your last save.",
     "battle_abandoned": "The interrupted battle was abandoned with no result. Your game continues from your last save.",
+    "battle_abandoned_lost": "The interrupted battle together counts as a loss for your team: a game left it. Your game "
+                             "continues from your last save.",
+    "battle_reconnect_wait": "Your teammate's game may still reconnect. A battle together can be abandoned 3 minutes after "
+                             "your teammate left; it then counts as a loss for your team.",
     "battle_abandon_unavailable": "There is no interrupted battle to abandon right now.",
     "battle_abandon_unsupported": "The host's version cannot abandon an interrupted battle. Update the host, or use Recover battle.",
     "battle_abandon_failed": "The battle could not be abandoned now. Check the connection to the host and try again.",
@@ -2067,7 +2071,9 @@ class LauncherWindow:
             return
         from tkinter import messagebox
         if not messagebox.askokcancel("Abandon interrupted battle",
-                "The battle ends for everybody with no result: nobody wins or loses, and no wager or reward is paid.\n\n"
+                "A battle between players ends for everybody with no result: nobody wins or loses, and no wager or reward "
+                "is paid. A battle together (a co-op Gym, the Tower Duo, a Frontier or League run) counts as a loss for "
+                "your team if a game left it, as giving up does.\n\n"
                 "Your game restarts from your last save, with the party it had before the battle.\n\n"
                 "Abandon this battle?", parent=self.root):
             return

@@ -15,7 +15,9 @@ and the in-game notices. The host is enabled only when its installed game has th
   word with the ledger's progress that changes nothing else.
 * **Interrupted battles:** a command never started for 120 s is void; a started battle that never reports is a loss
   (forfeit) once its player asks for another Tower battle at least 15 s after their game connected, or after 24 hours.
-  A Duo battle follows the native recovery; one abandoned without a result is void for both.
+  A Duo battle follows the native recovery. One abandoned because a game left it (closed, crashed, or away past the
+  reconnection time: battle_abandonment.py) is a loss for both, as a give-up is (the owner's decision #61, 2026-11-14:
+  closing the game is not a free retry); one abandoned with both players there (the route or the host failed) is void.
 * **Duo:** a host-formed team of two (PLAYERS > Invite to team) forms a Duo session: invite (the inviter is the Duo's
   host and chooses the floor: any floor open to both, so a player who has climbed higher joins a friend's lower floor),
   accept, the team (at most three each, the Frontier's selection), both ready; the second Ready issues the native co-op
@@ -731,7 +733,8 @@ class TowerService:
 
     def _reconcile_duo(self) -> None:
         """A Duo battle's fate, exactly as the Frontier reads a co-op battle's: its released outcome settles both
-        players; a battle proven never started, or abandoned without a result, is void for both."""
+        players; one abandoned because a game left it is a loss for both (#61); a battle proven never started, or
+        abandoned with both players there, is void for both."""
         server, book = self.server, self.book
         desk = server.battle_desk
         if desk is not None:
@@ -753,7 +756,17 @@ class TowerService:
             reservations = server._battle_reservations
             terminal = reservations.terminal(battle_id) if reservations is not None else None
             if terminal is not None and terminal.kind == "aborted":
-                book.void_battle(battle_id, "abandoned")         # aborted before it started, or abandoned without a result
+                from .battle_abandonment import abandonment_left
+                if abandonment_left(server, battle_id, terminal):
+                    # a game left the started battle (#61): the team's loss, as a give-up is - nothing paid, both back
+                    # to the floor after their last checkpoint
+                    tickets = [t for t in book.tickets_of_battle(battle_id) if t["state"] in ("issued", "started")]
+                    if tickets and book.settle(tickets[0]["ticket_id"], "lost", choose=None, forfeit=True) is not None:
+                        for ticket in book.tickets_of_battle(battle_id):
+                            self._notice([ticket["player_id"]], f"TOWER FLOOR {ticket['floor']}: NO RESULT",
+                                         "A game left: counted as a loss")
+                else:
+                    book.void_battle(battle_id, "abandoned")     # aborted before it started, or abandoned with both there
                 continue
             if server.battle_execution is not None and server.battle_execution.admission.terminal(battle_id) is not None:
                 book.void_battle(battle_id, "abandoned")

@@ -24,6 +24,18 @@ Host (``BattleAbandonment``):
 The answer (``abandonment_view``) names the battle, its players and its state: ``abandoned``, ``aborted`` (an
 earlier abort), ``closed`` (the result stands) or ``unresolved``.
 
+Battles together (the owner's decision #61, 2026-11-14): in a battle of two players on one side against the game's
+trainers (the co-op phase: a co-op Gym, the Tower Duo, the Frontier and League ladders) closing the game must not be a
+free retry, and a genuine disconnect gets time to come back. Once such a battle had started (its durable reservation),
+its abandonment record names who ``left``: the asking player when its launcher says its own game left the battle (it
+asks with ``left`` before a new game starts: a closed window, a crash, a restart), and every other participant with no
+connection to the host. A player whose game still holds the battle cannot abandon it while a teammate has been away
+for less than ``RECONNECT_GRACE_SECONDS`` (``battle_reconnect_wait``): the teammate's game may reconnect and the battle
+recover. The Tower Duo and the ladders settle an abandoned battle with someone in ``left`` as the team's loss, as a
+give-up is (tower_service.py, frontier_service.py); one nobody left (the route or the host failed with everybody
+there) stays void. A co-op Gym's loss and its void are the same (nothing is gained or lost either way). Battles between
+players on opposite sides keep the decision of 2026-10-19: no result.
+
 Client (``local_battle_targets`` / ``retire_local_battle``): the launcher keeps the host's answer, with the bytes of
 the local battle intents it retires, in ``<battle>.battle-abandoned.json`` and only then removes those intents. Its
 game, held in the battle, is closed and started again from the canonical save (launcher_session.py); a player whose
@@ -49,6 +61,10 @@ RECORD_FORMAT = "native-battle-abandonment-record-v1"
 CLIENT_FORMAT = "native-battle-client-abandonment-v1"
 DOMAIN = b"durable-native-battle-reservations-v1:abandoned\0"
 STATES = frozenset(("abandoned", "aborted", "closed", "unresolved"))
+# The owner's decision #61: battles together (native_battle.COOP_PHASE, the co-op mode of a reservation) and how long a
+# teammate's game may take to come back before the battle can be abandoned as a loss.
+TOGETHER_MODE = 4
+RECONNECT_GRACE_SECONDS = 180
 PENDING = ("pending-battle.json", "pending-battle-admission.json")
 # A battle's last commands are each core's RELEASE: a crash before the result was published leaves them at the end.
 JOURNAL_TAIL = 512 * 1024
@@ -56,14 +72,16 @@ _HASH = re.compile(r"[0-9a-f]{64}\Z")
 
 
 # --------------------------------------------------------------------------------------------------------------- view
-def abandonment_view(battle_id, generation, state, players, digest):
+def abandonment_view(battle_id, generation, state, players, digest, left=()):
+    """``left``: an abandoned battle together's players whose game left it (#61; then the team's loss), else empty."""
     return dict(scope=SCOPE, battle_id=battle_id, generation=generation, state=state, players=list(players),
-                terminal_sha256=digest)
+                terminal_sha256=digest, left=sorted(left))
 
 
 def validate_abandonment_view(value, actor, request=None):
     from .team_protocol import _uuid
-    if (type(value) is not dict or set(value) != {"scope", "battle_id", "generation", "state", "players", "terminal_sha256"}
+    if (type(value) is not dict
+            or set(value) != {"scope", "battle_id", "generation", "state", "players", "terminal_sha256", "left"}
             or value["scope"] != SCOPE or value["state"] not in STATES):
         raise ProtocolError("invalid_server_message", "invalid battle abandonment answer")
     try:
@@ -79,6 +97,10 @@ def validate_abandonment_view(value, actor, request=None):
             raise ValueError()
         # A terminal fact names its digest; an unresolved battle has none; an earlier abort may have no reservation.
         if (digest is None) == (value["state"] in ("abandoned", "closed")) or value["state"] == "unresolved" and digest:
+            raise ValueError()
+        left = value["left"]
+        if (type(left) is not list or len(set(left)) != len(left) or not set(left) <= set(players)
+                or left != sorted(left) or left and value["state"] != "abandoned"):
             raise ValueError()
     except (ValueError, ProtocolError) as error:
         raise ProtocolError("invalid_server_message", "malformed battle abandonment answer") from error
@@ -102,6 +124,27 @@ def _read_json(path, limit=65536):
     if len(raw) > limit or type(value) is not dict or _json_bytes(value) != raw:
         raise ValueError("not a canonical record")
     return value
+
+
+def abandonment_left(server, battle_id, terminal):
+    """The players whose game left this battle when it was abandoned (#61), read from its abandonment record when the
+    reservation's "aborted" terminal is that record's; empty for a battle aborted another way, nobody left, or a record
+    from before #61. A battle together's settlement (tower_service.py, frontier_service.py) counts it as the team's
+    loss when this names anybody."""
+    execution = getattr(server, "battle_execution", None)
+    directory = None if execution is None else execution.directory
+    if terminal is None or terminal.kind != "aborted" or directory is None:
+        return []
+    path = Path(directory) / (battle_id + ".abandoned.json")
+    try:
+        record = _read_json(path)
+    except (OSError, ValueError, TypeError):
+        return []
+    if (record.get("format") != RECORD_FORMAT or record.get("battle_id") != battle_id
+            or record_digest(record) != terminal.digest):
+        return []
+    left = record.get("left")
+    return list(left) if type(left) is list and set(left) <= set(record.get("players") or ()) else []
 
 
 def releases_journaled(path, players):
@@ -233,11 +276,13 @@ class BattleAbandonment:
             return abandonment_view(battle_id, identity["generation"], "closed", players, row["terminal_digest"])
         if row is not None and row["terminal_kind"] == "aborted":
             if record is not None and row["terminal_digest"] == record_digest(record):
-                return abandonment_view(battle_id, identity["generation"], "abandoned", players, row["terminal_digest"])
+                return abandonment_view(battle_id, identity["generation"], "abandoned", players, row["terminal_digest"],
+                                        record.get("left") or ())
             return abandonment_view(battle_id, identity["generation"], "aborted", players, row["terminal_digest"])
         if row is None and record is not None and not record["reserved"]:
             # Abandoned before any reservation: the record and the cancelled consent are the whole terminal fact.
-            return abandonment_view(battle_id, identity["generation"], "abandoned", players, record_digest(record))
+            return abandonment_view(battle_id, identity["generation"], "abandoned", players, record_digest(record),
+                                    record.get("left") or ())
         if row is None and battle is not None and battle.state == "aborted":
             return abandonment_view(battle_id, identity["generation"], "aborted", players, None)
         return abandonment_view(battle_id, identity["generation"], "unresolved", players, None)
@@ -283,6 +328,7 @@ class BattleAbandonment:
         journal = None if directory is None else directory / (battle_id + ".events.jsonl")
         if journal is not None and releases_journaled(journal, players):
             raise BattleError("battle_result_final", "every participant's restored release is recorded; recover to settle it")
+        left = self._left(actor, request, identity, row, record)
         self._stop_live(battle_id)
         if record is None:
             route = None
@@ -293,7 +339,7 @@ class BattleAbandonment:
                           battle_id=battle_id, **identity, requested_by=actor, reserved=row is not None,
                           reservation_sha256=None if row is None else row["sha256"], route_sha256=route,
                           reason=None if battle is None else (battle.reason or battle.state),
-                          released=sorted(battle.released) if battle is not None else [])
+                          released=sorted(battle.released) if battle is not None else [], left=left)
             path = self._record_path(battle_id)
             if path is None:
                 raise BattleError("battle_execution_disabled", "this host keeps no native battle evidence")
@@ -306,6 +352,27 @@ class BattleAbandonment:
             _atomic(self.execution.admission._path(battle_id), _json_bytes(consent))
         self._forget(battle_id, battle, players)
         return self.fate(actor, lease, request)
+
+    def _left(self, actor, request, identity, row, record):
+        """#61: who left a started battle together - the asker when its launcher says its own game left (``left``), and
+        every other participant with no connection to the host. A player still holding the battle waits while a
+        teammate has been away for less than RECONNECT_GRACE_SECONDS. An existing record (a request finishing an
+        earlier one) keeps its own answer; any other battle names nobody."""
+        from .battle_desk import BattleError
+        if record is not None:
+            return list(record.get("left") or [])
+        if identity["mode"] != TOGETHER_MODE or row is None:
+            return []
+        own = request.get("left") is True
+        server = self.server
+        absent = [p for p in identity["players"] if p != actor and server._connected_lease(p) is None]
+        if absent and not own:
+            waited = min(server._absent_seconds(p) for p in absent)
+            if waited < RECONNECT_GRACE_SECONDS:
+                wait = int(RECONNECT_GRACE_SECONDS - waited) + 1
+                raise BattleError("battle_reconnect_wait",
+                                  f"a teammate's game may still reconnect; the battle can be abandoned in {wait} s")
+        return sorted(set(absent) | ({actor} if own else set()))
 
     def _stop_live(self, battle_id):
         """The route and any recovery quorum of this battle stop; nothing they do later can publish anything."""
@@ -349,7 +416,12 @@ class BattleAbandonment:
                 pass
         try:
             from .shared_world import _banner
-            self.server.shared_world.post_notice(_banner("BATTLE ABANDONED", "No result was recorded"), to=list(players))
+            record = self._record(battle_id)
+            if record is not None and record.get("left"):
+                notice = _banner("BATTLE TOGETHER LOST", "A game left it: a team loss")       # #61
+            else:
+                notice = _banner("BATTLE ABANDONED", "No result was recorded")
+            self.server.shared_world.post_notice(notice, to=list(players))
             self.server._broadcast_world()
         except Exception:  # noqa: BLE001 - a notice never blocks an abandonment
             pass
@@ -436,12 +508,15 @@ async def host_can_abandon(companion):
     return supported
 
 
-async def resolve_battle(companion, battle_id, generation, *, abandon=True):
-    """Ask the host to abandon this battle (or only for its fate); the validated answer."""
+async def resolve_battle(companion, battle_id, generation, *, abandon=True, left=False):
+    """Ask the host to abandon this battle (or only for its fate); the validated answer. ``left``: this character's own
+    game left the battle (a new game is starting; #61)."""
     from .battle_journal import BattleJournalError
     if not await host_can_abandon(companion):
         raise BattleJournalError("battle_abandon_unsupported", "the host cannot abandon battles")
-    reply = await companion.battle_challenge_rpc("abandon" if abandon else "fate", battle_id=battle_id,
-                                                 generation=generation)
+    fields = dict(battle_id=battle_id, generation=generation)
+    if abandon and left:
+        fields["left"] = True
+    reply = await companion.battle_challenge_rpc("abandon" if abandon else "fate", **fields)
     return validate_abandonment_view(reply["result"], companion.config.player_id,
                                      dict(battle_id=battle_id, generation=generation))

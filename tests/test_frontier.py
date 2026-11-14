@@ -539,6 +539,49 @@ class ServiceTests(unittest.TestCase):
         self.finish(again, 1)
         self.assertEqual(self.call(self.sa, "status")["run"]["streak"], 1)
 
+    def abandon(self, battle_id, left):
+        """The battle abandoned as battle_abandonment.py leaves it: its record beside the route journal and the
+        reservation's "aborted" terminal naming that record's digest; ``left``: whose game left it (the owner's
+        decision #61)."""
+        from emerald_multiplayer.battle_abandonment import RECORD_FORMAT, record_digest
+        from emerald_multiplayer.live_checkpoint import _json_bytes
+        directory = Path(self.temp.name) / "execution"
+        directory.mkdir(exist_ok=True)
+        record = dict(format=RECORD_FORMAT, battle_id=battle_id, players=self.players[:2], reserved=True, left=left)
+        (directory / (battle_id + ".abandoned.json")).write_bytes(_json_bytes(record))
+        digest = record_digest(record)
+        self.server.battle_execution = SimpleNamespace(
+            directory=directory, admission=SimpleNamespace(terminal=lambda b: None, has_consent=lambda b: False))
+        self.server._battle_reservations = SimpleNamespace(
+            terminal=lambda b: SimpleNamespace(kind="aborted", digest=digest) if b == battle_id else None,
+            contains=lambda b: b == battle_id)
+        self.fixture.desk._active.pop(battle_id, None)
+        self.fixture.desk._history.pop(battle_id, None)
+
+    def test_a_round_a_game_left_ends_the_run_as_a_defeat(self):
+        # The owner's decision #61: before, an abandoned round was void and offered again (closing the game was a free
+        # retry); a round a game left is the team's loss, as a give-up is
+        self.begin()
+        battle_id = self.round()
+        self.abandon(battle_id, [self.b])
+        view = self.call(self.sa, "status")
+        self.assertEqual(self.world.frontier.attempt(battle_id)["state"], "lost")
+        run = self.world.frontier.run(self.world.frontier.attempt(battle_id)["run_id"])
+        self.assertEqual((run["state"], run["ended_reason"]), ("ended", "defeated"))
+        self.assertEqual((view["run"]["state"], view["run"]["ended_reason"], view["run"]["streak"]),
+                         ("ended", "defeated", 0))                                # what the players see
+        self.assertEqual(self.wallet(self.a), [])                                 # nothing paid
+        self.call(self.sa, "status")
+        self.assertEqual(self.world.frontier.record(self.a)["runs"], 1)           # settled once
+
+    def test_a_round_abandoned_with_both_players_there_comes_back(self):
+        self.begin()
+        battle_id = self.round()
+        self.abandon(battle_id, [])                                               # the route failed, nobody left
+        view = self.call(self.sa, "status")
+        self.assertEqual(self.world.frontier.attempt(battle_id)["state"], "void")
+        self.assertEqual((view["run"]["state"], view["run"]["round"]), ("active", 1))
+
     def test_a_result_that_arrives_late_for_a_voided_battle_pays_nothing(self):
         self.begin()
         battle_id = self.round()

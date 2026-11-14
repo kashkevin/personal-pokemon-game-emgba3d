@@ -86,6 +86,12 @@ def validate_battle_request(message, epoch):
                 or type(message["abandon_version"]) is not int or message["abandon_version"] != 1):
             raise ProtocolError("battle_abandon_unsupported", "unsupported battle abandonment capability query")
         extra = extra | {"abandon_version"}
+    if operation == "abandon" and "left" in message:
+        # The owner's decision #61 (2026-11-14): the asking launcher's own game left this battle - it asks before a new
+        # game starts (launcher_session._resolve_interrupted_battles). Only true is sent.
+        if message["left"] is not True:
+            raise ProtocolError("invalid_fields", "an abandonment's left is true or absent")
+        extra = extra | {"left"}
     if operation == "pending" and "live_check_version" in message:
         # KNOWN_ISSUES MS-60: does this host turn a game whose party is not its canonical save's away at Enter
         # (party_identity.py)? An older host answers with an error.
@@ -133,7 +139,7 @@ def validate_battle_request(message, epoch):
     if operation in ("execute", "resume") and provisional_fields.intersection(message):
         extra = extra | provisional_fields
     _fields(message, {"type", "request_id", "session_epoch"} | extra)
-    for key in extra - {"opponents", "fingerprint", "incarnation", "observation_b64", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "abandon_version", "live_check_version", "live", "player_card_version", "championship", "rival", "battle_archive", "reset_history", "trade_archive"}:
+    for key in extra - {"opponents", "fingerprint", "incarnation", "observation_b64", "response_b64", "response_id", "response_stage", "admission_sha256", "admission_b64", "admission_receipt_b64", "cleanup_receipt_b64", "cleanup_ready_b64", "handoff_receipt_b64", "admission_handoff_version", "abandon_version", "left", "live_check_version", "live", "player_card_version", "championship", "rival", "battle_archive", "reset_history", "trade_archive"}:
         _uuid(message[key], key)
     if operation == "execute":
         from .battle_execution_protocol import validate_execution_request

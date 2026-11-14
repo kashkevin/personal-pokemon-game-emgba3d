@@ -651,6 +651,51 @@ class DuoTests(unittest.TestCase):
     def paid(self, player):
         return [rewards.decode(w["delta"], tower=True) or (0, w["delta"]) for w in self.wagers.pending_for(player)]
 
+    def abandon(self, battle_id, left):
+        """The battle abandoned as battle_abandonment.py leaves it: its record beside the route journal and the
+        reservation's "aborted" terminal naming that record's digest; ``left``: whose game left it (the owner's
+        decision #61)."""
+        from emerald_multiplayer.battle_abandonment import RECORD_FORMAT, record_digest
+        from emerald_multiplayer.live_checkpoint import _json_bytes
+        directory = Path(self.temp.name) / "execution"
+        directory.mkdir(exist_ok=True)
+        record = dict(format=RECORD_FORMAT, battle_id=battle_id, players=self.players[:2], reserved=True, left=left)
+        (directory / (battle_id + ".abandoned.json")).write_bytes(_json_bytes(record))
+        digest = record_digest(record)
+        self.server.battle_execution = SimpleNamespace(
+            directory=directory, admission=SimpleNamespace(terminal=lambda b: None, has_consent=lambda b: False))
+        self.server._battle_reservations = SimpleNamespace(
+            terminal=lambda b: SimpleNamespace(kind="aborted", digest=digest) if b == battle_id else None,
+            contains=lambda b: b == battle_id)
+        self.fixture.desk._active.pop(battle_id, None)
+        self.fixture.desk._history.pop(battle_id, None)
+
+    def test_a_duo_battle_a_game_left_is_a_loss_for_both(self):
+        # The owner's decision #61: before, it was void for both and the floor could be fought again (closing the game
+        # was a free retry); now it counts as a give-up does
+        duo = self.form()
+        self.abandon(duo["battle_id"], [self.b])
+        self.service.reconcile()
+        tickets = self.world.tower.tickets_of_battle(duo["battle_id"])
+        self.assertEqual(sorted(t["state"] for t in tickets), ["forfeit", "forfeit"])
+        a, b = self.world.tower.player(self.a), self.world.tower.player(self.b)
+        self.assertEqual((a["losses"], b["losses"]), (1, 1))
+        self.assertEqual((b["progress"], b["highest"]), (50, 49))                          # a replay for Bob: no change
+        self.assertEqual([w[0] for w in self.paid(self.a)], [6])                           # the Tower state word only
+        texts = [n["text"] for n in [self.world._notice] + list(self.world._notice_queue) if n]
+        self.assertIn("TOWER FLOOR 12: NO RESULT|A game left: counted as a loss", texts)
+        view = self.call(self.a, "status")["duo"]
+        self.assertEqual(view["state"], "forming")                                         # the Duo goes on
+        self.service.reconcile()
+        self.assertEqual(len(self.wagers.pending_for(self.a)), 1)                          # settled and paid once
+
+    def test_a_duo_battle_abandoned_with_both_players_there_is_void(self):
+        duo = self.form()
+        self.abandon(duo["battle_id"], [])                                                 # the route failed
+        self.service.reconcile()
+        self.assertEqual([t["state"] for t in self.world.tower.tickets_of_battle(duo["battle_id"])], ["void", "void"])
+        self.assertEqual((self.world.tower.player(self.a)["losses"], self.paid(self.a)), (0, []))
+
     def test_a_higher_player_joins_the_hosts_lower_floor_and_only_new_floors_pay(self):
         """Owner request 2026-10-22: Bob (floor 49 cleared) joins Alice's run (her floor 12). The floor is Alice's
         choice; Bob's battle pays him nothing but its experience, Alice's pays her first clear; neither player's

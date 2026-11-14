@@ -441,7 +441,15 @@ class FrontierService:
             reservations = server._battle_reservations
             terminal = reservations.terminal(battle_id) if reservations is not None else None
             if terminal is not None and terminal.kind == "aborted":
-                book.void(battle_id)            # aborted before it started, or abandoned (no result either way)
+                from .battle_abandonment import abandonment_left
+                if abandonment_left(server, battle_id, terminal):
+                    # a game left the started round (the owner's decision #61: closing the game is not a free retry):
+                    # the team's loss, as a give-up is - the run ends defeated
+                    settled = book.settle(battle_id, 2)
+                    if settled is not None:
+                        self._settled_notice(settled)
+                else:
+                    book.void(battle_id)        # aborted before it started, or abandoned with both there (no result)
                 continue
             if server.battle_execution is not None and server.battle_execution.admission.terminal(battle_id) is not None:
                 book.void(battle_id)            # cancelled or abandoned before any reservation

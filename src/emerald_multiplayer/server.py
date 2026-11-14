@@ -269,6 +269,10 @@ class WorldServer:
                 if not isinstance(store, OwnershipCheckpointStore):
                     raise ValueError("ownership profile requires an explicit ownership store")
         self.sessions: dict[str, PlayerSession] = {}
+        # When each player's last session ended (time.monotonic), and when this host started: how long a battle
+        # together's teammate has been away (battle_abandonment.py, the owner's decision #61).
+        self._departures: dict[str, float] = {}
+        self._started_monotonic = time.monotonic()
         from .reset_attempts import ResetAttempts
         self._reset_attempts = ResetAttempts(store) if store is not None and store.reset_attempts_enabled else None
         # The launcher enables only the qualified native/menu/ownership path.
@@ -444,6 +448,12 @@ class WorldServer:
     def _connected_lease(self, player_id: str) -> int | None:
         session = self.sessions.get(player_id)
         return session.session_epoch if session is not None and not session.closed else None
+
+    def _absent_seconds(self, player_id: str) -> float:
+        """How long this player has had no connection: since their last session ended, or since this host started."""
+        if self._connected_lease(player_id) is not None:
+            return 0.0
+        return max(0.0, time.monotonic() - self._departures.get(player_id, self._started_monotonic))
 
     def enable_battle_execution(self, string_lengths, directory, *, resume_enabled=False, peek=False, receive_many=False,
                                 deliver=False):
@@ -798,6 +808,7 @@ class WorldServer:
             )
             # Admission has no await between checking and claiming the lease.
             self.sessions[session.player_id] = session
+            self._departures.pop(session.player_id, None)
             self.shared_world.set_active_players(len(self.sessions))
             self.shared_world.player_connected(session.player_id)
             welcome = {
@@ -836,6 +847,7 @@ class WorldServer:
                 session.close("disconnected")
                 if self.sessions.get(session.player_id) is session:
                     del self.sessions[session.player_id]
+                    self._departures[session.player_id] = time.monotonic()
                     self.shared_world.player_disconnected(session.player_id)
                     self.shared_world.set_active_players(len(self.sessions))
                     if self.team_desk is not None:
