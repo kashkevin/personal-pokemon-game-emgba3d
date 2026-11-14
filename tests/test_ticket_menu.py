@@ -95,7 +95,7 @@ class TicketPageTests(unittest.IsolatedAsyncioTestCase):
     async def test_the_way_in_is_frontier_and_league_with_the_capability_only(self):
         screen = await self.open_tickets()
         self.assertEqual((screen.title, screen.status), ("Legendary Tickets", "Given: 1 of 4"))
-        self.assertEqual(self.labels, ["Eon Ticket: 1/2", "Mystic Ticket: not yet", "Aurora Ticket: on its way",
+        self.assertEqual(self.labels, ["Eon Ticket: not yet", "Mystic Ticket: not yet", "Aurora Ticket: on its way",
                                        "Old Sea Map: GIVEN", "Back"])
         await self.click("Back")
         self.assertEqual(self.menu.screen.title, "Frontier and League")
@@ -107,6 +107,10 @@ class TicketPageTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Legendary Tickets", [r.label for r in menu.screen.rows])
 
     async def test_one_way_to_earn_it_is_shown_whole_with_the_progress(self):
+        # a world whose Eon Ticket has one way (its tickets.json line): the list shows that way's progress
+        self.view = host_view({"aurora": "sending", "old_sea_map": "given"},
+                              {"hall_of_fame:2": 1, "silver_symbols:7": 3, "tower_floor:75": 40, "weather_trio": 3,
+                               "regi_trio": 3}, sources={**lt.DEFAULT_SOURCES, "eon": ("hall_of_fame:2",)})
         await self.open_tickets()
         screen = await self.click("Eon Ticket: 1/2")
         self.assertEqual((screen.title, screen.status), ("Eon Ticket", "How to earn it"))
@@ -118,7 +122,8 @@ class TicketPageTests(unittest.IsolatedAsyncioTestCase):
         await self.open_tickets()
         screen = await self.click("Mystic Ticket: not yet")
         self.assertEqual((screen.title, screen.status), ("Mystic Ticket", "Any one of these earns it"))
-        self.assertEqual(self.labels, ["Island: Navel Rock", "Silver Symbols: 3/7", "Tower floor: 40/75", "Back"])
+        self.assertEqual(self.labels, ["Island: Navel Rock", "Silver Symbols: 3/7", "Tower floor: 40/75",
+                                       "Co-op streak: 0/14", "Back"])
         screen = await self.click("Tower floor: 40/75")
         self.assertEqual((screen.title, screen.status), ("Mystic Ticket", "One way to earn it"))
         self.assertEqual(self.labels, ["Island: Navel Rock", "Clear floor 75 of Battle", "Tower: Legends: 40/75", "Back"])
@@ -126,6 +131,10 @@ class TicketPageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.labels[1:3], ["Silver Symbols: 3/7", "Tower floor: 40/75"])
         await self.click("Silver Symbols: 3/7")
         self.assertEqual(self.labels[1:-1], ["Earn 7 of the Battle", "Frontier's Silver", "Symbols: 3/7"])
+        await self.click("Back")
+        await self.click("Co-op streak: 0/14")       # the co-op way, its rule in its sentence (the owner's #62)
+        self.assertEqual(" ".join(self.labels[1:-1]),
+                         "Win 14 rounds in a row in the co-op Battle Frontier (after your own Hall of Fame): 0/14")
 
     async def test_a_given_ticket_says_where_to_show_it_and_what_earned_it(self):
         await self.open_tickets()
@@ -144,12 +153,13 @@ class TicketPageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.menu.screen.status, "No room: make room, then save")
 
     async def test_an_unread_save_shows_what_is_needed_and_why(self):
-        self.view = host_view(haves={source: None for source in ("hall_of_fame:2", "regi_trio", "weather_trio",
-                                                                 "silver_symbols:7", "tower_floor:75")},
+        self.view = host_view(haves={source: None for source in ("hall_of_fame:2", "coop_league:1", "regi_trio",
+                                                                 "weather_trio", "silver_symbols:7", "tower_floor:75",
+                                                                 "coop_frontier_streak:14")},
                               problem="Save your game first")
         screen = await self.open_tickets()
         self.assertEqual(screen.status, "Save your game first")
-        self.assertEqual(self.labels[0], "Eon Ticket: ?/2")
+        self.assertEqual(self.labels[0], "Eon Ticket: not yet")
         await self.click("Old Sea Map: ?/3")
         self.assertEqual(self.labels[1:-1], ["Solve the Sealed Chamber:", "catch or defeat Regirock,",
                                              "Regice and Registeel: ?/3"])

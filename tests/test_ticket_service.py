@@ -461,9 +461,13 @@ class PageTests(TicketServiceTests):
         self.assertIsNone(view["problem"])
         self.assertEqual((tickets["eon"]["state"], tickets["eon"]["island"]), ("locked", "Southern Island"))
         self.assertEqual(tickets["eon"]["sources"], [{"text": "hall_of_fame:2", "label": "Enter the Hall of Fame 2 time(s)",
-                                                      "short": "Hall of Fame", "have": 1, "need": 2, "solo": True}])
+                                                      "short": "Hall of Fame", "have": 1, "need": 2, "solo": True},
+                                                     {"text": "coop_league:1", "short": "Co-op League", "have": 0,
+                                                      "need": 1, "solo": False,
+                                                      "label": "Clear the co-op Pokemon League 1 time(s) (after your "
+                                                               "own Hall of Fame)"}])
         self.assertEqual([(s["short"], s["have"], s["need"]) for s in tickets["mystic"]["sources"]],
-                         [("Silver Symbols", 0, 7), ("Tower floor", 0, 75)])
+                         [("Silver Symbols", 0, 7), ("Tower floor", 0, 75), ("Co-op streak", 0, 14)])
         self.assertEqual((tickets["aurora"]["state"], tickets["aurora"]["earned_by"]), ("sending", "weather_trio"))
         self.assertEqual(tickets["old_sea_map"]["sources"][0]["have"], 2)
         await alice.apply(self.server)
@@ -484,7 +488,7 @@ class HostRecordTests(TicketServiceTests):
 
     async def test_the_hosts_own_records_earn_tickets(self):
         world, player = self.server.shared_world, self.alice.player_id
-        alice = await self.join(self.alice)
+        alice = await self.join(self.alice, flags=(lt.FLAG_SYS_GAME_CLEAR,))   # her own Hall of Fame: co-op routes count
         await alice.save()
         self.assertEqual(self.words(self.alice), [])
         world.tower.sync(player, "Alice", SimpleNamespace(progress=76, highest=75, claims=0, revision=1), outstanding=0)
@@ -498,6 +502,29 @@ class HostRecordTests(TicketServiceTests):
                          ["ticket:aurora:1", "ticket:eon:1", "ticket:mystic:1", "ticket:old_sea_map:1"])
         sources = {row["ticket"]: row["source"] for row in world.tickets.rows(player)}
         self.assertEqual(sources, {"eon": "coop_league:1", "mystic": "tower_floor:75", "aurora": "championship_wins:1",
+                                   "old_sea_map": "coop_frontier_streak:7"})
+
+    async def test_co_op_records_wait_for_the_characters_own_hall_of_fame(self):
+        """The owner's decision #62: a co-op achievement credits only an eligible character - one that entered the Hall
+        of Fame itself. Bob cleared the co-op League and a co-op streak with a partner before his own Hall of Fame: no
+        ticket of theirs until his save shows it; the Championship (not a co-op ladder) counts at once."""
+        world, player = self.server.shared_world, self.bob.player_id
+        bob = await self.join(self.bob)
+        await bob.save()
+        with world._transaction():
+            world._db.execute("INSERT INTO frontier_records VALUES (?, 7, 1, 7, 0)", (player,))
+            world._db.execute("INSERT INTO league_records VALUES (?, 1, 3, 1.0, 1.0)", (player,))
+        self.server._championships = SimpleNamespace(statistics=lambda actor: {"entries": 1, "completed": 1,
+                                                                               "wins": 1 if actor == player else 0})
+        await self.tick(lambda: len(self.words(self.bob)) == 1)
+        self.assertEqual([w[2] for w in self.words(self.bob)], ["ticket:aurora:1"])
+        self.assertEqual({row["ticket"] for row in world.tickets.rows(player)}, {"aurora"})
+        bob.saved["flags"] = bob.saved["flags"] | {lt.FLAG_SYS_GAME_CLEAR}
+        bob.live["flags"] = bob.saved["flags"]
+        await bob.save()
+        await self.tick(lambda: len(self.words(self.bob)) == 3)
+        sources = {row["ticket"]: row["source"] for row in world.tickets.rows(player)}
+        self.assertEqual(sources, {"eon": "coop_league:1", "aurora": "championship_wins:1",
                                    "old_sea_map": "coop_frontier_streak:7"})
 
 
@@ -619,7 +646,8 @@ class LauncherHostingTests(unittest.IsolatedAsyncioTestCase):
                 tickets = session._server.tickets
                 self.assertIsNotNone(tickets)
                 self.assertEqual(tickets.sources["eon"], (lt.Source("hall_of_fame", 1),))
-                self.assertEqual(tickets.sources["mystic"], (lt.Source("silver_symbols", 7), lt.Source("tower_floor", 75)))
+                self.assertEqual(tickets.sources["mystic"], (lt.Source("silver_symbols", 7), lt.Source("tower_floor", 75),
+                                                             lt.Source("coop_frontier_streak", 14)))
         self.assertIs(seen[0], session._manifest)                                     # the installed game's manifest
 
     async def test_a_setting_that_cannot_be_used_stops_the_host_and_names_the_problem(self):

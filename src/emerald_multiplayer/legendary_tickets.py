@@ -192,6 +192,15 @@ class Condition(NamedTuple):
     label: str                   # what the player is told ({n}: the amount)
     have: Callable[[TicketFacts], int]
     need: int | None = None      # what ``have`` must reach when the condition takes no amount
+    # who the condition can credit (None: anyone it counts): the co-op ladders' credit a character only once that
+    # character has entered the Hall of Fame itself - the owner's decision #62 (2026-11-14): co-op achievements count
+    # beside the solo ones for eligible players who took part (each ladder's record holds only the team members whose
+    # battle was settled, frontier.py), so a co-op route is never a way round the postgame the solo routes ask for
+    eligible: Callable[[TicketFacts], bool] | None = None
+
+
+def _after_own_hall_of_fame(facts: TicketFacts) -> bool:
+    return facts.hall_of_fame >= 1
 
 
 CONDITIONS = {condition.kind: condition for condition in (
@@ -200,7 +209,8 @@ CONDITIONS = {condition.kind: condition for condition in (
     Condition("pokedex", POSTGAME, "save", True, (1, MAX_SPECIES_HERE),
               "Catch {n} kinds of Pokemon (National Pokedex)", lambda f: f.dex_caught),
     Condition("coop_league", POSTGAME, "host", False, (1, 999),
-              "Clear the co-op Pokemon League {n} time(s)", lambda f: f.coop_league),
+              "Clear the co-op Pokemon League {n} time(s) (after your own Hall of Fame)", lambda f: f.coop_league,
+              eligible=_after_own_hall_of_fame),
     Condition("regi_trio", QUEST, "save", True, None,
               "Solve the Sealed Chamber: catch or defeat Regirock, Regice and Registeel", lambda f: f.regis, 3),
     Condition("weather_trio", QUEST, "save", True, None,
@@ -220,7 +230,8 @@ CONDITIONS = {condition.kind: condition for condition in (
     Condition("tower_floor", FRONTIER, "save+host", True, (1, 100),
               "Clear floor {n} of Battle Tower: Legends", lambda f: f.tower_floor),
     Condition("coop_frontier_streak", FRONTIER, "host", False, (1, 999),
-              "Win {n} rounds in a row in the co-op Battle Frontier", lambda f: f.coop_frontier_streak),
+              "Win {n} rounds in a row in the co-op Battle Frontier (after your own Hall of Fame)",
+              lambda f: f.coop_frontier_streak, eligible=_after_own_hall_of_fame),
 )}
 
 
@@ -249,7 +260,8 @@ class Source(NamedTuple):
 
     def met(self, facts: TicketFacts) -> bool:
         have, need = self.progress(facts)
-        return have >= need
+        eligible = self.condition.eligible
+        return have >= need and (eligible is None or eligible(facts))
 
 
 def parse_source(text) -> Source:
@@ -272,11 +284,17 @@ def parse_source(text) -> Source:
 
 # ----------------------------------------------------------------------------------------------------------- settings
 # THE OWNER'S SETTING: one line per ticket; any of a ticket's sources earns it (docs/legendary-tickets.md section 3).
+# The owner's decision #62 (2026-11-14): the solo sources kept (D1), the equivalent co-op achievement beside them where
+# one exists (D2: a co-op source credits only a character with its own Hall of Fame, Condition.eligible; once per
+# character, as every ticket), no ticket sold (D3). The Regis and the weather trio are each player's own encounters:
+# no co-op achievement is their equal, so the Old Sea Map and the Aurora Ticket keep their solo quest alone.
 DEFAULT_SOURCES = {
-    "eon": ("hall_of_fame:2",),                          # postgame: the Elite Four and the Champion beaten again
+    "eon": ("hall_of_fame:2", "coop_league:1"),         # postgame: the Elite Four and the Champion beaten again - alone,
+                                                        # or together in the co-op Pokemon League
     "old_sea_map": ("regi_trio",),                       # quest: the Sealed Chamber's riddle and its three legends
     "aurora": ("weather_trio",),                         # quest: Kyogre, Groudon and Rayquaza
-    "mystic": ("silver_symbols:7", "tower_floor:75"),    # Frontier: the island's seven Brains, or the world's Tower
+    "mystic": ("silver_symbols:7", "tower_floor:75",     # Frontier: the island's seven Brains, or the world's Tower,
+               "coop_frontier_streak:14"),               # or the co-op Battle Frontier's second Frontier Brain pair
 }
 MAX_SOURCES = 4
 # No ticket is sold at the Game Corner (none ever was: tools/mp/gen_rare_goods.py keeps tickets out). A casino price would

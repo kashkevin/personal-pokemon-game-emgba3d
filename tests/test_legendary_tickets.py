@@ -225,9 +225,36 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(categories, {lt.POSTGAME, lt.QUEST, lt.FRONTIER})
         for key, choices in sources.items():
             self.assertTrue(any(source.condition.solo for source in choices), key)
-        self.assertEqual(sources["eon"], (lt.Source("hall_of_fame", 2),))
-        self.assertEqual(sources["mystic"], (lt.Source("silver_symbols", 7), lt.Source("tower_floor", 75)))
-        self.assertEqual(lt.CASINO_PRICES, {})       # no Game Corner ticket unless the owner sets a price
+        # the owner's decision #62 (2026-11-14): the solo lines kept (D1), the equivalent co-op achievement beside them
+        # where one exists (D2), none sold (D3); the Regis and the weather trio are personal encounters: solo alone
+        self.assertEqual(sources["eon"], (lt.Source("hall_of_fame", 2), lt.Source("coop_league", 1)))
+        self.assertEqual(sources["mystic"], (lt.Source("silver_symbols", 7), lt.Source("tower_floor", 75),
+                                             lt.Source("coop_frontier_streak", 14)))
+        self.assertEqual(sources["old_sea_map"], (lt.Source("regi_trio", None),))
+        self.assertEqual(sources["aurora"], (lt.Source("weather_trio", None),))
+        for key, choices in sources.items():
+            co_op = [source for source in choices if not source.condition.solo]
+            self.assertTrue(all(source.condition.eligible is not None for source in co_op), key)
+        self.assertEqual(lt.CASINO_PRICES, {})       # no Game Corner ticket (D3)
+
+    def test_a_co_op_route_credits_only_a_character_with_its_own_hall_of_fame(self):
+        """The owner's decision #62: co-op achievements count for eligible players who took part - a character's
+        co-op League clear or co-op Frontier streak earns its ticket only once that character entered the Hall of Fame
+        itself (the solo routes are postgame; a ride along before it earns nothing until then)."""
+        sources = lt.validate_sources(lt.DEFAULT_SOURCES)
+        league, streak = lt.Source("coop_league", 1), lt.Source("coop_frontier_streak", 14)
+        before = lt.TicketFacts(coop_league=3, coop_frontier_streak=20)
+        self.assertEqual(league.progress(before), (1, 1))
+        self.assertFalse(league.met(before))
+        self.assertFalse(streak.met(before))
+        self.assertEqual(lt.earned_by(sources, before), {})
+        after = lt.TicketFacts(hall_of_fame=1, coop_league=1, coop_frontier_streak=14)
+        self.assertEqual(lt.earned_by(sources, after), {"eon": league, "mystic": streak})
+        self.assertEqual(lt.earned_by(sources, lt.TicketFacts(hall_of_fame=1, coop_frontier_streak=13)), {})
+        self.assertIn("after your own Hall of Fame", league.label)
+        self.assertIn("after your own Hall of Fame", streak.label)
+        # the solo routes need no such rule (their own conditions are the character's)
+        self.assertTrue(lt.Source("tower_floor", 75).met(lt.TicketFacts(tower_floor=75)))
 
     def test_any_source_earns_the_ticket_and_the_settings_order_names_it(self):
         sources = lt.validate_sources(lt.DEFAULT_SOURCES)

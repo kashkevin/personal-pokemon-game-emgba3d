@@ -173,12 +173,21 @@ TICKET` / `Make room, then save`. Both go to that player only.
 
 ```python
 DEFAULT_SOURCES = {
-    "eon": ("hall_of_fame:2",),
+    "eon": ("hall_of_fame:2", "coop_league:1"),
     "old_sea_map": ("regi_trio",),
     "aurora": ("weather_trio",),
-    "mystic": ("silver_symbols:7", "tower_floor:75"),
+    "mystic": ("silver_symbols:7", "tower_floor:75", "coop_frontier_streak:14"),
 }
 ```
+
+**Decided 2026-11-14 (the owner's decision #62, D1-D3):** the solo sources above stay (D1); the equivalent co-op
+achievement counts beside them where one exists (D2) - the Eon Ticket also for a co-op Pokemon League clear, the Mystic
+Ticket also for 14 rounds in a row in the co-op Battle Frontier (its second Frontier Brain pair) - crediting only an
+eligible character that took part: each ladder's record holds only the team members whose battle was settled, and a
+co-op source counts only once that character has entered the Hall of Fame itself (`Condition.eligible`; the solo routes
+are postgame, so a co-op route is never a way round it); each ticket stays once per character. The Old Sea Map and the
+Aurora Ticket keep their solo quest alone: the Regis and the weather trio are each player's own encounters, and no co-op
+achievement is their equal. No ticket is sold (D3).
 
 A world may replace whole lines with `<world>.tickets.json` beside its database (like `<world>.frontier.json`):
 `{"sources": {"eon": ["hall_of_fame:1", "coop_league:1"]}}`. A file that cannot be used stops the host from starting
@@ -348,9 +357,9 @@ the ship flags 0x8B3, 0x8E0, 0x8D5, 0x8D6, the received flags 0x13A-0x13C and th
 
 | # | Decision | Kind | Default here | Alternatives |
 | --- | --- | --- | --- | --- |
-| D1 | Which achievement opens which ticket, and how much (section 3) | **Major (gameplay)** | Eon: two Hall of Fame entries; Old Sea Map: the Sealed Chamber's three; Aurora: the weather trio; Mystic: all seven Silver Symbols or Tower floor 75 | per ticket, section 3's alternatives |
-| D2 | May a source need other players (co-op League, co-op Frontier, Championships)? | **Major** | only as extra ways beside a solo one; none by default | add `coop_league:1` to the Eon line, `coop_frontier_streak:14` to the Mystic line, ... |
-| D3 | A Game Corner ticket | **Major** (economy) | none (none exists or was proposed) | a coin price per ticket, sold only beside an achievement; needs the engine's grant in the coin shop (6.2); the price is yours (the Shiny Charm and key RARE GOODS cost 15,000 coins) |
+| D1 | Which achievement opens which ticket, and how much (section 3) | **Decided 2026-11-14 (#62): the defaults kept** | Eon: two Hall of Fame entries; Old Sea Map: the Sealed Chamber's three; Aurora: the weather trio; Mystic: all seven Silver Symbols or Tower floor 75 | per ticket, section 3's alternatives |
+| D2 | May a source need other players (co-op League, co-op Frontier, Championships)? | **Decided 2026-11-14 (#62): the equivalent co-op achievements beside the solo ones (section 5)** | only as extra ways beside a solo one; none by default | add `coop_league:1` to the Eon line, `coop_frontier_streak:14` to the Mystic line, ... |
+| D3 | A Game Corner ticket | **Decided 2026-11-14 (#62): none** | none (none exists or was proposed) | a coin price per ticket, sold only beside an achievement; needs the engine's grant in the coin shop (6.2); the price is yours (the Shiny Charm and key RARE GOODS cost 15,000 coins) |
 | D4 | A character that already meets a condition gets the ticket at its next save on the host | routine | yes | only achievements made after this version (would need a recorded baseline per character) |
 | D5 | Delivered by the host with a banner, like Frontier and Tower prizes | routine | yes | collected from an NPC (Lilycove's sailor or the Pokemon Center's Mystery Gift man): an engine script per ticket |
 | D6 | Tickets only for the six island encounters; the other nineteen keep the game's own access | routine (reading of the decision) | yes | if "tickets for personal static legendaries" meant a new permit for all 25, that is a different, restrictive feature: say so |
