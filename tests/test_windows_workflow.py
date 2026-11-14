@@ -648,7 +648,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", checks)
         self.assertIn("needs: engine", checks)
         self.assertIn("mega_check.py --exe $exe --make-save $save", checks)    # a save of the short introduction
-        for check in ("move_switch_check", "shiny_check", "acro_check", "flymap_check"):
+        for check in ("move_switch_check", "shiny_check", "acro_check", "flymap_check", "parting_shot_check"):
             self.assertIn(f'{check} = "mega-check-inputs\\{check}.py"', checks)
         # The RARE GOODS check beside the engine files it reads (run 219: none on the runner).
         self.assertIn('casino_check = "mega-check-inputs\\casino\\tools\\battle_env\\casino_check.py"', checks)
@@ -656,7 +656,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("if (-not (Test-Path $save))", checks)                   # the save is made (mega_check exits 1 on 0 of 0)
         self.assertNotIn(".sav", checks.split("upload-artifact")[1])           # reports and pictures, never the save
         engine = job("engine")
-        self.assertIn("for check in move_switch_check shiny_check; do", engine)
+        # Parting Shot under the Gen 6 rule (the owner's decision #63) beside mega_check, as the other two
+        self.assertIn("for check in move_switch_check shiny_check parting_shot_check; do", engine)
         # The Acro Bike's check beside the mega_check it imports (MS-171).
         self.assertIn("cp tools/battle_env/acro_check.py ../mega-check-inputs/", engine)
         self.assertIn("cp tools/battle_env/flymap_check.py ../mega-check-inputs/", engine)    # Fly from the Town Map

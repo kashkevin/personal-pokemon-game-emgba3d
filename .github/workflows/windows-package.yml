@@ -257,7 +257,9 @@ jobs:
           if [ -f tools/battle_env/catch_check.py ]; then cp tools/battle_env/catch_check.py ../mega-check-inputs/; fi
           # Move switching, shiny wild Pokemon seen before the battle and the Game Corner's RARE GOODS (the feature-checks
           # job), from an engine that has the checks.
-          for check in move_switch_check shiny_check; do
+          # Parting Shot under the Gen 6 rule (the owner's decision #63): Soundproof, Magic Coat and Magic Bounce, beside
+          # mega_check too, from an engine that has the check.
+          for check in move_switch_check shiny_check parting_shot_check; do
             if [ -f tools/battle_env/$check.py ]; then cp tools/battle_env/$check.py ../mega-check-inputs/; fi
           done
           # The Acro Bike on the Safari Zone South's rails (the feature-checks job; KNOWN_ISSUES MS-171), beside the
@@ -733,7 +735,9 @@ jobs:
     # Safari Zone South's rails (the owner's choice of 2026-10-31, acro_check.py: the original's crossing and the PC's
     # easier rails), Fly from the Town Map (the owner's request of 2026-10-31, flymap_check.py) and the TM catalogue (the
     # owner's TM request of 2026-10-31, tm_catalogue_check.py: bought, SOLD OUT, saved, the TM PRIZES, taught) and the
-    # Game Corner's item hub (the owner's request of 2026-10-31, item_hub_check.py), each read from the game's own log,
+    # Game Corner's item hub (the owner's request of 2026-10-31, item_hub_check.py) and Parting Shot under the Gen 6
+    # rule (the owner's decision #63 of 2026-11-14, parting_shot_check.py: Soundproof, Magic Coat and Magic Bounce, which
+    # Pokemon switches out), each read from the game's own log,
     # from a save of the game's own short introduction made on the runner; and the reset-guarded static encounters
     # offline (KNOWN_ISSUES MS-156: the Kecleons, Voltorbs, Electrodes, Regis, Rayquaza and Lugia each start their
     # battle in a save no world has enrolled; tools/qa/gameplay_check.py --static-encounters, its plan from the engine).
@@ -767,6 +771,7 @@ jobs:
           # casino_check sits with the engine files it reads (the engine job).
           $checks = [ordered]@{ move_switch_check = "mega-check-inputs\move_switch_check.py"
                                 shiny_check = "mega-check-inputs\shiny_check.py"
+                                parting_shot_check = "mega-check-inputs\parting_shot_check.py"
                                 casino_check = "mega-check-inputs\casino\tools\battle_env\casino_check.py"
                                 rotom_check = "mega-check-inputs\casino\tools\battle_env\rotom_check.py"
                                 acro_check = "mega-check-inputs\acro_check.py"
