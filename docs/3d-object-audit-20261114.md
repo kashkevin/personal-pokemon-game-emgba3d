@@ -114,7 +114,7 @@ the Battle Pike's rooms, the Pyramid's floors (their darkness is the game's), Tr
 
 | Class | Status |
 | --- | --- |
-| 1 | Open - the rooms are cut one by one, most visited first (this document is updated as each lands) |
+| 1 | **In progress**: 17 layouts cut by hand, 24 places (engine `048f9503`: the Department Store 1F-5F, its rooftop's railing, the Museum 1F/2F, the harbors, the Cycling Road gates, the cable car stations, the Battle Tents' lobby, the Contest Lobby, the Day Care and its fence, the Safari Zone entrance); the rest as listed in the class |
 | 2-6 | Open |
 
 Nothing here is verified on Windows or a graphics card; every picture is Linux, Mesa's software renderer.
