@@ -114,8 +114,8 @@ the Battle Pike's rooms, the Pyramid's floors (their darkness is the game's), Tr
 
 | Class | Status |
 | --- | --- |
-| 1 | **In progress**: 17 layouts cut by hand, 24 places (engine `048f9503`: the Department Store 1F-5F, its rooftop's railing, the Museum 1F/2F, the harbors, the Cycling Road gates, the cable car stations, the Battle Tents' lobby, the Contest Lobby, the Day Care and its fence, the Safari Zone entrance); the rest as listed in the class |
-| 3 | **In progress**: the potted plants' outline fragments fixed (engine `84b9f2cb`: the house kit's plant its whole silhouette; Sootopolis's Mystery Events house's doorway behind its plants filled down its columns); open: the lounges' plant cards, the smeared sides, the cracks, the Elite Four's platforms |
+| 1 | **In progress**: 23 layouts cut by hand, 33 places (engine `048f9503`: the Department Store 1F-5F, its rooftop's railing, the Museum 1F/2F, the harbors, the Cycling Road gates, the cable car stations, the Battle Tents' lobby, the Contest Lobby, the Day Care and its fence, the Safari Zone entrance; engine `7033b9d5`: the Oceanic Museum 1F, the lifts, the Battle Tower's two corridors, the Battle Tents' corridor); the cards' flat copies under them in these rooms (found in the pictures) fixed (`fb45cee3`); the rest as listed in the class |
+| 3 | **In progress**: fixed - the potted plants' outline fragments (engine `84b9f2cb`: the house kit's plant its whole silhouette; Sootopolis's Mystery Events house's doorway behind its plants filled down its columns), the lounges' and Scott's house's plant cards' blue squares (`7033b9d5`), Lavaridge's Center's slits (`fb45cee3`: a lent wall to fill from); open: the smeared sides, the Marts' corners and Brendan's and May's stair alcove (R), the Hall of Fame's purple line, Devon's lobby (R), the Elite Four's platforms |
 | 2, 4-6 | Open |
 
 Nothing here is verified on Windows or a graphics card; every picture is Linux, Mesa's software renderer.
