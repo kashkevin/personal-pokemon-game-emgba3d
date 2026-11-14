@@ -102,7 +102,7 @@ EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard"
                 "sRemotes", "sGlobalScriptContextStatus", "HandleInputChooseMove", "BattleMainCB2",
                 "gSaveBlock1Ptr", "gSaveBlock2Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp",
                 "gBattleStruct", "gSaveCounter", "sLockFieldControls", "Task_HandleYesNoInput",
-                "sForfeitAsking", "gMultiplayerWorldMailbox", "sShownNoticeId", "sPartyMenuInternal", "sMailRead",
+                "sForfeitAsking", "sGiveUpTogetherAsking", "gMultiplayerWorldMailbox", "sShownNoticeId", "sPartyMenuInternal", "sMailRead",
                 "CB2_MailRead", "CB2_ExitOnKeyPress", "gPokemonStoragePtr", "gPaletteFade", "gBattleOutcome")
 WINDOWS = sys.platform == "win32"
 
@@ -491,6 +491,40 @@ async def give_up_from_standby(probe, give_up, picture=None):
     return True
 
 
+async def give_up_from_menu(probe, battler, give_up, picture=None):
+    """The owner's decision #61 (2026-11-14): in a battle together the action menu's GIVE UP asks first, "Giving up ends
+    this battle for both players. Give up?" (No first; the game's sGiveUpTogetherAsking: 1 printing, 2 the Yes/No box
+    up). With the cursor on GIVE UP: A, the question read and pictured; B (No) and the action menu must come back with
+    the cursor still on GIVE UP and nothing sent; A again, UP to Yes, A. True once Yes was chosen; `give_up` gets what
+    was seen."""
+    async def asking(value, seconds=5):
+        async with asyncio.timeout(seconds):
+            while probe.mem("sGiveUpTogetherAsking", 1)[0] != value:
+                await asyncio.sleep(.05)
+
+    await probe.press(1, frames=12, release=18)                      # A on GIVE UP: the question, not the action
+    await asking(2)
+    give_up["asked"] = time.monotonic()
+    if picture is not None:
+        give_up["picture"] = await asyncio.to_thread(game_picture, probe, picture)
+    await probe.press(2, frames=12, release=30)                      # B: No
+    await asking(0)
+    async with asyncio.timeout(5):
+        while probe.choosing_action() != battler:
+            await asyncio.sleep(.05)
+    give_up["no_back_to_menu"] = dict(at=time.monotonic(), cursor=probe.mem("gActionSelectionCursor", 1, battler)[0])
+    if picture is not None:
+        give_up["menu_picture"] = await asyncio.to_thread(game_picture, probe, picture.with_name("give-up-no.png"))
+    if give_up["no_back_to_menu"]["cursor"] != 3:
+        return False
+    await probe.press(1, frames=12, release=18)                      # GIVE UP again
+    await asking(2)
+    await probe.press(64, frames=12, release=18)                     # UP to Yes
+    await probe.press(1, frames=12, release=30)                      # A
+    give_up.update(chosen=time.monotonic(), asking_after=probe.mem("sGiveUpTogetherAsking", 1)[0])
+    return True
+
+
 async def idle_battle_input(probe, view, stop, party=False):
     """MS-126: a player who walks away from the battle: nothing pressed at all, or (party=True) first the keys to the
     party menu (Pokemon on the action menu: Fight 0, Bag 1, Pokemon 2, Run 3), then nothing."""
@@ -533,7 +567,7 @@ async def walk_away_at(probe, view, symbols, stop, request, seen=None):
 
 
 async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None, give_up=None, other_view=None,
-                             picture=None):
+                             picture=None, give_up_menu=None):
     """qualify_menu_battle.py's input policy: one key owner per game. `seen` (a dict, if given) keeps what the driver
     last read and did, for a proof's record while the battle runs: the room's state and pending request, the game's
     battle phase, the action, the presses so far and when the last one was (time.monotonic()).
@@ -541,7 +575,9 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None
     (MS-126: in a link battle Run is the forfeit); the dict gets the battler and when Run was chosen.
     `give_up` (a dict, if given, with `other_view`): this player makes their first choice as usual, then gives up from
     the waiting screen while the other player still has to choose (MS-126); the dict gets when. `give_up["when"]` (an
-    async predicate, if given) instead decides when, still from the waiting screen (the other player may have chosen)."""
+    async predicate, if given) instead decides when, still from the waiting screen (the other player may have chosen).
+    `give_up_menu` (a dict, if given): in a battle together, this player gives up at their first action choice from the
+    action menu's GIVE UP, which asks first (give_up_from_menu: No once, then Yes); the dict gets what was seen."""
     if seen is not None:
         seen.update(presses=0, pressed=None)
     while not stop.is_set():
@@ -564,6 +600,18 @@ async def drive_battle_input(probe, view, symbols, stop, seen=None, forfeit=None
                     if not await give_up_from_standby(probe, give_up, picture):
                         await asyncio.sleep(.3)
                     continue
+        if (give_up_menu is not None and "chosen" not in give_up_menu and "failed" not in give_up_menu
+                and room["state"] == "executing" and room["pending"] == CHOOSE_ACTION_REQUEST and state["state"] == 5):
+            battler = probe.choosing_action()
+            if battler is None:
+                await asyncio.sleep(.05)
+            elif probe.mem("gActionSelectionCursor", 1, battler)[0] != 3:
+                await choose_run(probe, battler)                    # one key towards GIVE UP (never A elsewhere)
+            elif not await give_up_from_menu(probe, battler, give_up_menu, picture):
+                give_up_menu["failed"] = "the action menu came back with its cursor off GIVE UP"
+            else:
+                give_up_menu["battler"] = battler
+            continue
         if (forfeit is not None and "chosen" not in forfeit and room["state"] == "executing"
                 and room["pending"] == CHOOSE_ACTION_REQUEST and state["state"] == 5):
             # A would choose Fight here: only the keys to Run, once the action menu is up.

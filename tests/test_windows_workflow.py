@@ -622,6 +622,11 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("if: ${{ !cancelled() }}", coop)          # also after the award's step failed
         coop_proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_coop_proof.py").read_text(encoding="utf-8")
         self.assertIn('parser.add_argument("--give-up"', coop_proof)
+        # the owner's decision #61: the action menu's GIVE UP asks first, in its own step after the waiting screen's
+        self.assertIn("native_launcher_coop_proof.py --give-up-menu 1", coop)
+        self.assertIn('--output "$RUNNER_TEMP/multiplayer-proof/coop-give-up-menu"', coop)
+        self.assertLess(coop.index("--give-up 1"), coop.index("--give-up-menu 1"))
+        self.assertIn('parser.add_argument("--give-up-menu"', coop_proof)
         tower = job("tower-proof")
         self.assertIn('- {name: duo-give-up, scenario: duo-give-up, a: tower-forfeit-a, b: tower-forfeit-b, '
                       'extra: "--party-counts 6 6 --give-up 2"}', tower)

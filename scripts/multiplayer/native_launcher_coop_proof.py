@@ -46,6 +46,12 @@ parties afterwards, with the launcher harness of native_launcher_battle_proof.py
     lost; each game runs the co-op defeat script (no whiteout) with no
     experience, no badge, the Leader not marked beaten, no money gained or lost;
     both host saves around the script as after a win; the parties unchanged;
+  - with --give-up-menu N (the owner's decision #61, 2026-11-14), player N gives
+    up at its first action from the action menu's GIVE UP, which asks first
+    ("Giving up ends this battle for both players. Give up?"): No once (the
+    action menu again, the cursor on GIVE UP, nothing sent), then Yes; its
+    teammate chooses its turn as usual. The same loss as --give-up, without a
+    notice: the giver's one reply a Run; the question pictured beside --output;
   - checks, from each game's memory: every Pokemon of its own that could battle
     gained experience, its lead (sent out) the most; Pokemon that grew; the
     teammate's party is no longer held (each game changes only its own party);
@@ -82,6 +88,8 @@ from emerald_multiplayer.ownership import _SUBSTRUCT_OFFSETS  # noqa: E402
 GYM = 1  # Rustboro (Roxanne): see the docstring; --gym
 CLOSE_SLOT = -1  # --close-during-award
 GIVE_UP = -1     # --give-up: the player who gives up (MS-126)
+GIVE_UP_MENU = -1  # --give-up-menu: the player who gives up from the action menu, which asks first (decision #61)
+PICTURES = None  # --give-up-menu: where the question's pictures go (beside the proof's output)
 # A Gym's badge and its Leader's trainer flag (engine include/constants/flags.h FLAG_BADGE01_GET .. 08, in the co-op
 # Gyms' order MP_COOP_GYM_RUSTBORO 1 .. SOOTOPOLIS 8; TRAINER_FLAGS_START + TRAINER_ROXANNE_1 265 .. TRAINER_JUAN_1 272),
 # read from the running game's save block 1 (SaveBlock1.flags at 0x1270, tower_rules.FLAGS_OFFSET)
@@ -227,7 +235,7 @@ async def coop_match(current, probes, games, host, symbols, record):
     record("parties-before", parties=before)
     for p in before:
         require(p[0]["level"] == LEAD_LEVEL, "fixture parties: the lead at Lv. 60")
-    if GIVE_UP >= 0:
+    if GIVE_UP >= 0 or GIVE_UP_MENU >= 0:
         from native_launcher_tower_proof import live_wallet
         START_MONEY.update({slot: live_wallet(p)["money"] for slot, p in enumerate(probes)})
         flags = [FLAG_BADGE01_GET + GYM - 1, TRAINER_FLAGS_START + FIRST_LEADER + GYM - 1]
@@ -303,6 +311,23 @@ async def coop_match(current, probes, games, host, symbols, record):
             probes[giver], lambda: view(battlers[giver]), symbols, stop, {}, give_up=given,
             other_view=lambda: view(battlers[other])))
         drivers[other] = asyncio.create_task(idle_battle_input(probes[other], lambda: view(battlers[other]), stop))
+    elif GIVE_UP_MENU >= 0:
+        # The owner's decision #61: the giver's first action is the action menu's GIVE UP, which asks first ("Giving
+        # up ends this battle for both players."): No once (the menu again), then Yes; its teammate chooses its turn as
+        # usual (the game's link Run waits for every choice of the turn, then goes first). Every routed block is kept.
+        async def observe(s):
+            service = s._server.battle_execution
+            require(service.observer is None, "a previous proof observer exists")
+            service.observer = lambda block: blocks.append(dict(block, at=round(time.monotonic(), 2)))
+        await on_worker(current[0], observe)
+        giver, other = GIVE_UP_MENU, 1 - GIVE_UP_MENU
+        battlers = (0, 2)
+        drivers = [None, None]
+        drivers[giver] = asyncio.create_task(drive_battle_input(
+            probes[giver], lambda: view(battlers[giver]), symbols, stop, {}, give_up_menu=given,
+            picture=None if PICTURES is None else PICTURES / "give-up-question.png"))
+        drivers[other] = asyncio.create_task(logged_driver(probes[other], battlers[other],
+                                                           lambda: view(battlers[other]), symbols, stop))
     else:
         drivers = [asyncio.create_task(logged_driver(p, b, lambda b=b: view(b), symbols, stop))
                    for p, b in zip(probes, (0, 2))]
@@ -343,7 +368,7 @@ async def coop_match(current, probes, games, host, symbols, record):
         return values[0] if values else None
     result = await on_worker(current[0], outcome)
     record("coop-battle-finished", seconds=round(time.monotonic() - started, 1), result=result)
-    if GIVE_UP >= 0:
+    if GIVE_UP >= 0 or GIVE_UP_MENU >= 0:
         async def unobserve(s):
             s._server.battle_execution.observer = None
         await on_worker(current[0], unobserve)
@@ -410,27 +435,47 @@ async def coop_given_up(current, probes, games, before, start_revisions, battle_
     """--give-up (MS-126): what a co-op Gym battle given up by one of the team leaves. The whole team lost: one notice
     from the giver's game for its own battler, both games' own result and the host's co-op result LOST; each game runs
     its defeat script (no whiteout) after the host save that carries the result, then saves again; no experience, no
-    badge, the Leader not marked beaten, no money gained or lost; the parties as before."""
+    badge, the Leader not marked beaten, no money gained or lost; the parties as before.
+    --give-up-menu (the owner's decision #61): the same loss from the action menu's GIVE UP after its question - no
+    notice (the game's link Run), the giver's one reply a Run, sent only after Yes (No sent nothing)."""
     from native_launcher_tower_proof import live_wallet
-    giver = GIVE_UP
+    menu = GIVE_UP_MENU >= 0
+    giver = GIVE_UP_MENU if menu else GIVE_UP
     battler = (0, 2)[giver]
     require("chosen" in given, "the giver never chose Yes on the question: " + json.dumps(given, default=str))
 
     def data(b):
         return bytes.fromhex(b["data"])
     notices = [b for b in blocks if b["kind"] == 8 and data(b)[0] == FORFEIT_ROLE]
-    require(len(notices) == 1 and notices[0]["source"] == giver and data(notices[0])[1] == battler,
-            f"expected one forfeit notice from the giver's game for battler {battler}: "
-            f"{[(n['source'], data(n)[1]) for n in notices]}")
+    if menu:
+        require(not notices, f"a forfeit notice from the action menu's GIVE UP: {[n['source'] for n in notices]}")
+        back = given.get("no_back_to_menu")
+        require(back is not None and back["cursor"] == 3 and given.get("asking_after") == 0,
+                "No did not bring the action menu back on GIVE UP, or the question stayed: "
+                + json.dumps(given, default=str))
+        # a choice (TWORETURNVALUES 32, CHOSENMONRETURNVALUE 33) for the giver's battler before No brought the menu
+        # back; the controllers' other blocks (each command's "done") come and go as usual
+        early = [b for b in blocks if b["kind"] == 8 and b["source"] == giver and data(b)[0] == 1
+                 and data(b)[1] == battler and data(b)[8] in (32, 33) and b["at"] < given["no_back_to_menu"]["at"]]
+        require(not early, f"the giver's game sent a choice before Yes: {[data(b)[8:10].hex() for b in early]}")
+    else:
+        require(len(notices) == 1 and notices[0]["source"] == giver and data(notices[0])[1] == battler,
+                f"expected one forfeit notice from the giver's game for battler {battler}: "
+                f"{[(n['source'], data(n)[1]) for n in notices]}")
 
     def replies(core):
         # (command, first byte) of a core's replies for the players' battlers (TWORETURNVALUES 32, CHOSENMONRETURNVALUE
         # 33); the master's AI trainers' (battlers 1 and 3) are left out
         return [tuple(data(b)[8:10]) for b in blocks if b["kind"] == 8 and b["source"] == core and data(b)[0] == 1
                 and data(b)[1] in (0, 2) and data(b)[8] in (32, 33)]
-    require(replies(giver) == [(32, 0), (32, 10)], f"the giver's replies differ: {replies(giver)}")
-    require(replies(1 - giver) == [(32, 13)], f"the teammate's game did not pass its turn by itself: "
-            f"{replies(1 - giver)}")
+    if menu:
+        # B_ACTION_RUN (3), once; the teammate chose its turn as usual (B_ACTION_USE_MOVE 0, then its move)
+        require(replies(giver) == [(32, 3)], f"the giver's replies were not one Run: {replies(giver)}")
+        require(replies(1 - giver) == [(32, 0), (32, 10)], f"the teammate's turn differs: {replies(1 - giver)}")
+    else:
+        require(replies(giver) == [(32, 0), (32, 10)], f"the giver's replies differ: {replies(giver)}")
+        require(replies(1 - giver) == [(32, 13)], f"the teammate's game did not pass its turn by itself: "
+                f"{replies(1 - giver)}")
     own = [p.mem("gBattleOutcome", 1)[0] for p in probes]
 
     async def host_records(s):
@@ -439,9 +484,11 @@ async def coop_given_up(current, probes, games, before, start_revisions, battle_
         return dict(coop_result=server.shared_world.frontier.coop_result(battle_id),
                     friendship=[row[0] for row in rows])
     host = await on_worker(current[0], host_records)
-    record("coop-given-up", giver=giver, battler=battler, own_results=own, host=host, notice_at=notices[0]["at"],
+    record("coop-given-up", giver=giver, battler=battler, own_results=own, host=host, way="menu" if menu else "standby",
+           notice_at=notices[0]["at"] if notices else None,
            seconds_from_enter_to_yes=round(given["chosen"] - min(b["at"] for b in blocks), 1),
-           presses_of_b_before_the_question=given.get("b_without_question", 0))
+           presses_of_b_before_the_question=given.get("b_without_question", 0),
+           question=dict((k, v) for k, v in given.items() if k in ("picture", "menu_picture", "no_back_to_menu")))
     require(own == [OUTCOME_LOST, OUTCOME_LOST], f"a game's own result is not a loss: {own}")
     require(host["coop_result"] == OUTCOME_LOST, f"the host's co-op result is not a loss: {host}")
     # each game's defeat script after the host save that carries the result (A presses its message)
@@ -649,9 +696,13 @@ async def run(args):
         target = fixtures / f"coop-{name}.sav"
         boost_lead(source, target)
         sources.append(target)
-    global GYM, CLOSE_SLOT, GIVE_UP
-    GYM, CLOSE_SLOT, GIVE_UP = args.gym, args.close_during_award, args.give_up
-    require(GIVE_UP < 0 or CLOSE_SLOT < 0, "--give-up and --close-during-award: one at a time")
+    global GYM, CLOSE_SLOT, GIVE_UP, GIVE_UP_MENU, PICTURES
+    GYM, CLOSE_SLOT, GIVE_UP, GIVE_UP_MENU = args.gym, args.close_during_award, args.give_up, args.give_up_menu
+    require(sum(x >= 0 for x in (GIVE_UP, CLOSE_SLOT, GIVE_UP_MENU)) <= 1,
+            "--give-up, --give-up-menu and --close-during-award: one at a time")
+    if GIVE_UP_MENU >= 0:
+        PICTURES = root.parent / (root.name + "-pictures")
+        PICTURES.mkdir(parents=True, exist_ok=True)
     await launcher_proof(args, names=NAMES, sources=tuple(sources), party_counts=(2, 1), match=coop_match,
                          version="Native co-op proof", after_boot=after_boot, on_harness=adopt,
                          settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
@@ -684,6 +735,9 @@ def main():
     parser.add_argument("--give-up", type=int, default=-1, choices=(-1, 0, 1),
                         help="this player chooses its move and gives up from the waiting screen while its teammate has "
                              "walked away (MS-126; 1: the friend): the team must lose, with nothing gained")
+    parser.add_argument("--give-up-menu", type=int, default=-1, choices=(-1, 0, 1),
+                        help="this player gives up at its first action from the action menu's GIVE UP, which asks "
+                             "first (the owner's decision #61): No once, then Yes; the team must lose, nothing gained")
     asyncio.run(run(parser.parse_args()))
 
 
