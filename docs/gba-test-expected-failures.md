@@ -148,7 +148,7 @@ upstream test that passes in this build:
 
 ### Possible defects (C)
 
-1. **Parting Shot switches its user out after being blocked or reflected (rows 27-29; reachable in this game).** The
+1. **Parting Shot switches its user out after being blocked or reflected (rows 27-29; reachable in this game).** **Decided 2026-11-14 (the owner's decision #63): the PC game follows the Gen 6 rule** - the user switches out only when the move reached its target (engine `9624a0a4`, PC only; tested in real games by `tools/battle_env/parting_shot_check.py`, KNOWN_ISSUES "Parting Shot (Gen 6)"). The GBA build keeps upstream's rule, so these three tests still fail there and stay listed. The
    pre-Gen 7 branch (`src/battle_move_resolution.c:4779`) lets the user switch whenever it can, at the move-end step
    (`:4813-4814`), even when Soundproof blocked the move or Magic Coat or Magic Bounce reflected it. With a reflection
    both the reflecting Pokemon and the original user switch out. Evidence:
