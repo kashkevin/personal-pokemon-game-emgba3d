@@ -175,7 +175,7 @@ The Battle Point review proposes no change (#46). Decided on 2026-11-13 (`docs/o
 
 ## 4. Verification only the owner's PCs can give
 
-**The owner's release tests (2026-11-17, `docs/owner-decisions.md` #74):** a fresh install, an upgrade over an existing save, controller support, GPU benchmarking, local multiplayer and Internet multiplayer - each needs real hardware and none is marked passed from CI, Wine or Linux.
+**The owner's release tests (2026-11-17, `docs/owner-decisions.md` #74):** a fresh install, an upgrade over an existing save, controller support, GPU benchmarking, local multiplayer and Internet multiplayer - each needs real hardware and none is marked passed from CI, Wine or Linux. **The checklist for them: `docs/windows-test-20261117.md`** (with the exact benchmark command and what changed since the earlier checklist).
 
 A real graphics card at 60 fps, a controller, two PCs on a home network and over the Internet (router, UPnP/NAT-PMP),
 a fresh install and first play on the owner's PC, and the owner's crash logs if the Safari crash recurs (MS-169).
