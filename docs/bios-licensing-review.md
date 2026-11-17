@@ -1,5 +1,7 @@
 # `src/platform/bios.c`: licensing review (Update 7)
 
+**Updated 2026-11-17:** see `docs/n8-distribution-20261117.md` (call sites, options A-D, and the game material question).
+
 **Status: NOT resolved. This is a review, not legal advice and not a decision.** Nothing in this build changes the
 licensing position of the file. Do not hand a build to anyone outside the owner until the owner decides (option B or C below).
 

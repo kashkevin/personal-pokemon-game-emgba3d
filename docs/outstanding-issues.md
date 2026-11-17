@@ -156,6 +156,8 @@ finished until implemented, regression-tested and verified on Windows; nothing b
 
 ## 3. Decisions only the owner can make (options in `docs/owner-decisions.md`)
 
+**Decided on 2026-11-17** (`docs/owner-decisions.md` #70-#74): N8 investigated for a legal way to distribute, the installer kept private meanwhile and local testing not held up; the bumpy slopes' 4-pixel steps now (B) and a smooth slope later (C) if it moves well; MS-216's newest 40 copies per world (B), restoring from a copy verified before the cleanup is turned on; the order of work (the four dotted seams and the rails' thickness, then the reachable art and HUD issues, the 42 unreachable battle effects last); and real-hardware release testing (section 4).
+
 **Decided on 2026-11-14** (`docs/owner-decisions.md` #59-#69): the straight rock walls kept and the tall grass's outlines softened (MS-248), the voxel trees' ground fixed (MS-245), a give-up in a battle together the team's loss with a confirmation and no free retry by closing the game (#51), the tickets' solo sources kept with co-op ones beside them and none sold (D1-D3), Parting Shot to the Gen 6 rule, a traded Egg's shininess kept, the casino's A + B + C (MS-85), MS-149 closed with a Heavy Ball description, U31-5 kept, the hint banner's plain wording (M27), and the objects' visual cleanup - their work in section 1. **Still the owner's: N8** (left out of this work; the build stays private). The text below is the list as it stood before.
 
 Decided on 2026-11-05 (section 0; `docs/owner-decisions.md` #35-50): G13, the ticket source, the character
@@ -171,6 +173,8 @@ when another trainer hatches it (Eggs in trades: kept as it was, the proposal; t
 The Battle Point review proposes no change (#46). Decided on 2026-11-13 (`docs/owner-decisions.md` #54-58): MS-243 (A), Shoal Cave's bridges (#52: a layout of the room's own), Mt. Pyre 5F's stairwell (MS-237: (c)), the cramped battle backgrounds (V10: a fallback scene) and the voxel trees' memory (MS-244: B), now work in section 1. And (2026-11-07) whether to bound the copies of world saves the player's PC keeps (MS-216, `docs/owner-decisions.md` #53: (a) keep all, as now; (b) keep the newest 40 per world account, recommended; (c) pack the older ones; nothing removed until you choose).
 
 ## 4. Verification only the owner's PCs can give
+
+**The owner's release tests (2026-11-17, `docs/owner-decisions.md` #74):** a fresh install, an upgrade over an existing save, controller support, GPU benchmarking, local multiplayer and Internet multiplayer - each needs real hardware and none is marked passed from CI, Wine or Linux.
 
 A real graphics card at 60 fps, a controller, two PCs on a home network and over the Internet (router, UPnP/NAT-PMP),
 a fresh install and first play on the owner's PC, and the owner's crash logs if the Safari crash recurs (MS-169).

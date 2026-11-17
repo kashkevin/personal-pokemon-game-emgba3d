@@ -158,3 +158,17 @@ change is tested (on Windows only once a Windows run has covered it); progress i
 | 67 | The original rival in Match Call (U31-5) | **A**: keep (the optional tips do not conflict with multiplayer) | Closed as by design |
 | 68 | The hint banner's missing arrows (M27) | **B**: plain wording, "Press START, then PLAYER, then STYLE" | To do |
 | 69 | The objects' visual cleanup | Inspect and fix railings, fences, bridges, stairs, furniture, doors, windows, signs, posts, roofs and the other indoor and outdoor objects: flat or blocky shapes that should have depth, gaps, floating objects, clipping, mismatched heights, stretched textures, wrong shadows, objects hiding the player wrongly; railings and fences their thickness and connected corners, furniture standing on floors and against walls. Keep the art direction, collision, walkable paths, interactions and gameplay; targeted models or rendering fixes, never the whole game's terrain changed for one object. An audit first, then the clear defects and straightforward improvements without asking about each; ask only for a meaningful artistic or gameplay decision. Every changed scene checked from several cameras, with pictures before and after; CI's checks kept apart from a real graphics card's | To do: the audit |
+
+## Decided 2026-11-17 (the owner's answers on N8, the bumpy slopes and the old save copies, and the work's order)
+
+The owner's answers of 2026-11-17. Each row counts as done only once the change is tested (on Windows only once a
+Windows run has covered it, and on real hardware only once the owner has tried it); progress is kept in KNOWN_ISSUES
+and `docs/outstanding-issues.md`.
+
+| # | Decision | The owner's answer | What follows |
+| --- | --- | --- | --- |
+| 70 | The licensing of `src/platform/bios.c` (N8) | Keep the installer private for now; investigate a legal way to distribute the game without bundling the problem code; do not let it hold up local testing | To do: the investigation (`docs/n8-distribution-20261117.md`); the private installer stays available for the owner's own tests |
+| 71 | The bumpy slopes in 3D (Safari Zone North, Jagged Pass and the other `MB_BUMPY_SLOPE` cells) | **B for now**: 4-pixel steps, better than today's 1-pixel slats without changing the ground's shape across several routes; **C later** (a smooth slope for a polished 3D view), provided it introduces no movement problems | To do: B; C kept as later work |
+| 72 | The copies of world saves kept on the player's PC (MS-216, #53) | **B**: keep the newest 40 copies per world; every save inside the world itself kept; restoring from a copy verified **before** the automatic cleanup is turned on | To do: the restore check first, then the cleanup |
+| 73 | The work's order | First the four dotted seams (class 6) and the Acro Bike rails' thickness; then the remaining reachable art and HUD issues; the 42 battle effects no game can reach stay low priority | To do in that order |
+| 74 | Release testing | A fresh install, an upgrade over an existing save, controller support, GPU benchmarking, local multiplayer and Internet multiplayer all need verification on real hardware | The owner's to run (section 4 of `docs/outstanding-issues.md`); never marked passed from CI or Linux |
