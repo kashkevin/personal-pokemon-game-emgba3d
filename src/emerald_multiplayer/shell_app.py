@@ -34,9 +34,10 @@ import time
 
 from .character_creation import CreationError, create_draft, message_for
 from .character_library import CharacterLibrary, LibraryError
-from .character_links import CharacterLinks
+from .character_links import CharacterLinks, profile_directory
 from .character_migration import migrate_characters, recover_draft, recoverable_drafts
 from .character_play import account_save, needs_registration, record_after_session, register_character, sync_from_worlds
+from .save_copies import prune_all_accounts, prune_save_copies
 from .connection_diagnostics import check_routes, check_sign_in, describe, result as diagnosis
 from .graphics_mode import MODE_2D, MODE_3D, MODE_LABELS, GraphicsPreference, choose_launch, explain_failure, probe_graphics
 from .invitations import Invitation, InvitationError
@@ -256,6 +257,12 @@ class ShellApp:
             except (OSError, LibraryError, StoreUnavailable) as error:
                 self._record_error(error)
                 self.library_migration, synced = None, []
+            try:
+                # KNOWN_ISSUES MS-216 (the owner's #72): each world account keeps the newest 40 copies of its world saves on
+                # this PC (the world keeps every save); after the latest progress was picked up above
+                prune_all_accounts(self.private_root)
+            except Exception as error:                                  # noqa: BLE001 - never in the menu's way
+                self._record_error(error)
             if self.library_migration is not None and self.library_migration.imported:
                 names = ", ".join(sorted({name for name, _ in self.library_migration.imported}))
                 self.notice = ("ok", f"Your characters from the earlier version are ready: {names}.")
@@ -718,6 +725,15 @@ class ShellApp:
             return
         if updated is not None and outcome == "game_closed":
             self.notice = ("ok", f"Game closed. {character.name}'s progress is saved (as of your last save).")
+        self._prune_save_copies(world_id, player_id)
+
+    def _prune_save_copies(self, world_id, player_id):
+        """After a game in a world ended and the character took its latest save: this account keeps the newest 40 copies
+        of its world saves on this PC (KNOWN_ISSUES MS-216, the owner's #72; the world keeps every save)."""
+        try:
+            prune_save_copies(profile_directory(self.private_root, world_id, player_id), world_id, player_id)
+        except Exception as error:                                      # noqa: BLE001 - never in the menu's way
+            self._record_error(error)
 
     def _need_game(self):
         if self._game_installed():

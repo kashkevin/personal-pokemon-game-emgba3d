@@ -90,6 +90,37 @@ class MainMenuTests(unittest.TestCase):
         self.assertEqual(app.run(), 0)
 
 
+class SaveCopiesTests(unittest.TestCase):
+    """KNOWN_ISSUES MS-216 (the owner's #72): the menu keeps the newest 40 copies of each world account's saves on this PC,
+    at start-up and after a game in a world ends (save_copies.py; the restore and the rules in tests/test_save_copies.py)."""
+
+    def test_the_menu_keeps_the_newest_forty_copies_at_start_up_and_after_a_game(self):
+        from test_save_copies import Account
+        world = World(self)
+        driver = Driver(("main", select("solo")), ("confirm", select("yes")), ("create_character", select("go")),
+                        ("solo", select("new")), ("ask_text", select("ok", value="My world")),
+                        ("bring_character", select("go")), main_exit())
+        app, _ = world.app(driver, worker=FakeWorker(lambda request: "game_closed"), drafter=fake_drafter([]),
+                           register=fake_register([]))
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        (character,) = app.library.all()
+        account = Account(world.private, character.world_id, character.player_id)
+        account.save(*range(1, 46))
+        other = Account(world.private)                       # another world account on this PC, not played below
+        other.save(*range(1, 44))
+
+        def play(request):                                   # five saves the world acknowledges while the game runs
+            account.save(*range(46, 51))
+            return "game_closed"
+        driver = Driver(("main", select("continue")), main_exit())
+        app2, _ = world.app(driver, worker=FakeWorker(play))
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        self.assertEqual(other.kept(), list(range(4, 44)))      # at start-up
+        self.assertEqual(account.kept(), list(range(11, 51)))   # at start-up 6-45, then after the game 11-50
+
+
 class CharacterTests(unittest.TestCase):
     def test_a_first_time_player_creates_one_character_and_plays_solo_with_no_second_new_game(self):
         world = World(self)
