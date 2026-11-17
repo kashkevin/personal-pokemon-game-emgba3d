@@ -2,7 +2,7 @@
 
 The six release tests the owner asked for on 2026-11-17 (`docs/owner-decisions.md` #74) - a fresh install, an upgrade
 over an existing save, a controller, a graphics-card benchmark, multiplayer on one network and over the Internet - for
-the next installer: the one prepared from a full Windows run whose every job passes with engine `a3e7b65b` or later
+the next installer: the one prepared from a full Windows run whose every job passes with engine `3821d2cb` or later
 (its own `docs/package-*.md` names it; until then the newest prepared one is CI-476). Every item is unverified until it
 is ticked on a real PC: GitHub's Windows runners have no graphics card, no controller and one machine, and nothing
 here was tried on one. The installer stays private (N8, #70).
@@ -104,3 +104,16 @@ changed since it.
 Choices waiting for your eyes while you play (`docs/owner-decisions.md`): #75 a tall Pokemon's head behind the foe's
 lower databox in a double battle (Gardevoir in your left slot), #76 Spinda's spots, #77 a very tall Pokemon cut at the
 Classic 2D battle's frame (Lugia or Rayquaza with Classic 2D), #78 Route 119's flat rails.
+
+And one preview to try if you like (#71 C, smooth slopes; off unless asked for, never tried on Windows): close
+EmeraldTogether, open a Command Prompt and type
+
+```
+set PKMN_DIORAMA_SMOOTH_SLOPES=1
+"%LOCALAPPDATA%\Programs\EmeraldTogether\EmeraldTogether.exe"
+```
+
+The launcher started from that window passes the setting on to its game: Jagged Pass's bumpy slopes and Route 111's
+mud are smooth ramps instead of steps - ride the Acro Bike up and down them and the Mach Bike up the mud, and look at
+the rider on the slope. Starting EmeraldTogether the usual way is the steps again (B). Whether C becomes the default
+(the bumpy slopes only, or the muddy ones too) is your choice, #71.
