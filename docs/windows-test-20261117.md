@@ -2,8 +2,8 @@
 
 The six release tests the owner asked for on 2026-11-17 (`docs/owner-decisions.md` #74) - a fresh install, an upgrade
 over an existing save, a controller, a graphics-card benchmark, multiplayer on one network and over the Internet - for
-the next installer: the one prepared from a full Windows run whose every job passes with engine `3821d2cb` or later
-(its own `docs/package-*.md` names it; until then the newest prepared one is CI-477, `docs/package-20261117.md`). Every item is unverified until it
+the next installer: **CI-478** (`EmeraldTogether-Setup-Native-3D-CI-478.exe`, engine `3821d2cb`; `docs/package-20261117b.md`:
+all 93 jobs of run 478 passed on GitHub's Windows runners). Every item is unverified until it
 is ticked on a real PC: GitHub's Windows runners have no graphics card, no controller and one machine, and nothing
 here was tried on one. The installer stays private (N8, #70).
 
@@ -27,7 +27,7 @@ changed since it.
 
 ## 2. An upgrade over an existing save
 
-- [ ] Setup over the build installed now (CI-477's or earlier): every character, save and world kept; a hosted world
+- [ ] Setup over the build installed now (CI-477's or any earlier one): every character, save and world kept; a hosted world
       asks once to get ready for the new version (a backup first); the Solo world brings the character back; play on,
       save, close, Continue.
 - [ ] The old copies of world saves (MS-216, #72): before upgrading, count the `.flash` files in a world account's
@@ -99,7 +99,9 @@ changed since it.
   South's rails on posts; Route 119's rails flat (#78, your choice).
 - The tall grass's outlines softer (#59 C); the ground under the voxel trees matching (#60 B); the Ranking Hall's
   front without its two false windows (V44).
-- With the sprite pack: Role Play's white silhouette and Snatch's runner are the animated sprites now (S7).
+- With the sprite pack: Role Play's white silhouette and Snatch's runner are the animated sprites now (S7). The CI
+  installers carry no sprite pack (their packaging logs: `HAVE_SPRITES: false`), so with them the battles draw the
+  GBA's sprites and S7 does not show; it shows only in a package built with the pack (`docs/battle-sprites.md`).
 
 Choices waiting for your eyes while you play (`docs/owner-decisions.md`): #75 a tall Pokemon's head behind the foe's
 lower databox in a double battle (Gardevoir in your left slot), #76 Spinda's spots, #77 a very tall Pokemon cut at the

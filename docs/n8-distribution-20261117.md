@@ -19,8 +19,9 @@ document brings it up to date and adds the larger question it left out.
    of their own under MPL-2.0, which only asks that this one file's source be offered, or replace them too.
 4. **Fixing `bios.c` does not make the game distributable.** The two game executables are compiled from the Pokemon
    Emerald decompilation (pret/pokeemerald and pokeemerald-expansion, which grant no rights to the game's code or
-   material) and contain the game's code, graphics, music, maps and text. The installer also carries the private
-   battle sprite pack of official art. All of that is the copyrighted work of Nintendo, Creatures and GAME FREAK,
+   material) and contain the game's code, graphics, music, maps and text. A package built with the private battle
+   sprite pack would carry official art too (the CI installers so far carry none: correction of 2026-11-17, see
+   the table below). All of that is the copyrighted work of Nintendo, Creatures and GAME FREAK,
    and "Pokemon" and its names are their trademarks. No engineering change makes giving that away legal without the
    rights holders' permission (Part 2).
 5. **The model ROM hacks use, where each player supplies their own game and the package carries only this project's
@@ -37,7 +38,7 @@ document brings it up to date and adds the larger question it left out.
 | `pokeemerald-mp-diorama.exe`, `pokeemerald-mp.exe` | The game compiled for Windows: the decompiled game's code and data; the PC port layer (voxel project lineage); this project's own code; `bios.c` | Game material: no licence; port layer: MIT, its notice kept; `bios.c`: GPL-2.0-or-later and MPL-2.0 | **No** (the game material, and the GPL in `bios.c`) |
 | `SDL2.dll` | Window, input and sound library | zlib | Yes |
 | `stb_image` (zlib decoder inside the game) | Sean Barrett's single-file library | Public domain or MIT | Yes |
-| `battle-sprites.ebsp` | The animated battle sprite pack | Private official art (`docs/battle-sprites.md`) | **No** (the game runs without it, with the GBA's own sprites) |
+| (`battle-sprites.ebsp`) | The animated battle sprite pack: **not in CI-476** (corrected 2026-11-17; nor in CI-477 or CI-478): the packaging job adds it only when its private address is set, and their logs say `HAVE_SPRITES: false` - "no pack: the GBA sprites are drawn" | Private official art (`docs/battle-sprites.md`) | **No**, if a package ever carries it (the game runs without it, with the GBA's own sprites) |
 | `battlefx/` | The 3D battle effects | Textures and meshes procedural; the animation data converted from the game's own battle animation scripts | The data, like the game, no |
 | `game-facts.json` | Facts about the game build (hashes, addresses) for the launcher | Project-made | Yes |
 
