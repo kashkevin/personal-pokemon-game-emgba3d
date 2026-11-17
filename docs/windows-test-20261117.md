@@ -1,121 +1,203 @@
-# The next installer: the owner's release tests on real Windows PCs (2026-11-17)
+# Release tests on your own PCs, step by step (2026-11-17, revised 2026-11-18)
 
-The six release tests the owner asked for on 2026-11-17 (`docs/owner-decisions.md` #74) - a fresh install, an upgrade
-over an existing save, a controller, a graphics-card benchmark, multiplayer on one network and over the Internet - for
-the next installer: **CI-478** (`EmeraldTogether-Setup-Native-3D-CI-478.exe`, engine `3821d2cb`; `docs/package-20261117b.md`:
-all 93 jobs of run 478 passed on GitHub's Windows runners). Every item is unverified until it
-is ticked on a real PC: GitHub's Windows runners have no graphics card, no controller and one machine, and nothing
-here was tried on one. The installer stays private (N8, #70).
+Six tests that only a real PC can do: an upgrade over your saves, a fresh install, controllers, the graphics card's
+benchmark, two PCs on one network, and two PCs over the Internet; then the sprite pack and the slopes. Everything a
+machine without a graphics card, a controller or a second PC could do was done first (end of this page). Nothing here
+has been tried on a real PC yet: each box is open until you tick it.
 
-Back up first: each PC's private folder `%LOCALAPPDATA%\PokemonPrivate` (characters, saves, worlds: `world.sqlite3`
-and every `world.sqlite3.*` beside it). Neither Setup nor the uninstaller touches it.
+The installer to test: **CI-479** (`EmeraldTogether-Setup-Native-3D-CI-479.exe`, engine `c7b0d80d`; run 479 of
+2026-11-17/18 - its result and the file's SHA-256 are filled in below once every job has finished). It is for your
+own PCs only; please do not pass it on. About 2-3 hours in all; tests 1-4 need one PC, tests 5-6 two.
 
-If something fails, note the time and keep: `%LOCALAPPDATA%\PokemonPrivate\shell\last-error.txt`, the newest game
-launch folder under `%LOCALAPPDATA%\PokemonPrivate\launcher\launches\` (its `runtime.log` and, after a crash,
-`crash.log`), and on the host the world's folder.
+When something goes wrong: note the time and what you did, press **F12** in the game for a picture (saved in
+`Pictures\EmeraldTogether`), and keep `%LOCALAPPDATA%\PokemonPrivate\shell\last-error.txt` and the newest folder in
+`%LOCALAPPDATA%\PokemonPrivate\launcher\launches\` (its `runtime.log`, and `crash.log` after a crash).
 
-The earlier checklist (`docs/windows-test-20261106.md`) still holds for what it lists; below are the six tests and what
-changed since it.
+## 0. Get the installer (5 minutes, once)
 
-## 1. A fresh install
+1. Signed in to GitHub, open <https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44197476274>.
+2. Scroll to **Artifacts** and click **EmeraldTogether-Windows-Installer** (a zip of about 59 MB). GitHub keeps it 7
+   days after the run (until about 2026-11-25).
+3. Right-click the zip > **Extract All** > **Extract**.
+4. Check the file: press Win+R, type `cmd`, Enter, and paste (the folder is where the zip was extracted):
 
-- [ ] On a PC (or a new Windows account) that never had EmeraldTogether: run Setup; the launcher starts; the graphics
-      check picks the 3D view on the graphics card (or offers Classic 2D if the card's OpenGL is too old).
-- [ ] A new character: the short introduction, the starter, the first save; close; Continue loads the same place and
-      party. The one-time hint banner reads "Press START, then PLAYER, then STYLE" (M27, #68).
-- [ ] Uninstall, then install again: the private folder and everything in it are still there.
+   ```
+   certutil -hashfile "%USERPROFILE%\Downloads\EmeraldTogether-Windows-Installer\EmeraldTogether-Setup-Native-3D-CI-479.exe" SHA256
+   ```
 
-## 2. An upgrade over an existing save
+   The line it prints must be `(filled in when run 479 finishes)`. If not, stop and tell me.
+5. Copy the exe to each PC you test on (USB stick or a shared folder).
+6. The installer is not signed: Windows may say "Windows protected your PC". Click **More info** > **Run anyway**.
 
-- [ ] Setup over the build installed now (CI-477's or any earlier one): every character, save and world kept; a hosted world
-      asks once to get ready for the new version (a backup first); the Solo world brings the character back; play on,
-      save, close, Continue.
-- [ ] The old copies of world saves (MS-216, #72): before upgrading, count the `.flash` files in a world account's
-      folder (`%LOCALAPPDATA%\PokemonPrivate\launcher\players\...`, one folder per world and player; a long-played world
-      has hundreds). After the new launcher's first start: at most the newest 40 there (and their `.export.json`
-      receipts); fewer than 40 before means none removed. Then open that world: the character comes back as last saved,
-      and play and save there as before. The world keeps every save itself; only the PC's spare copies go.
-- [ ] A world made before the upgrade with two players (if you have one): both join after both upgraded; a PC still on
-      the old build is refused with "Different game versions" (MS-28).
+## 1. Back up first (each PC, 2 minutes)
 
-## 3. A controller
+1. Close EmeraldTogether completely (Task Manager shows no `EmeraldTogether.exe` and no `pokeemerald-mp*.exe`).
+2. Press Win+R, type `%LOCALAPPDATA%`, Enter.
+3. Copy the folder **PokemonPrivate** and paste it on your Desktop; rename the copy `PokemonPrivate-backup`.
+   Setup and the uninstaller never touch this folder; the copy is only for a disaster.
 
-- [ ] An Xbox-style controller plugged in before starting: the launcher's menu moves with the D-pad, A chooses and B
-      goes back (U30-5).
-- [ ] In the game: the D-pad and the stick walk; A, B (B cancels and answers No, never confirms a multiplayer question,
-      #21, #43), Start and Select; in a held trade window B asks "Cancel the trade?".
-- [ ] Unplug it mid-game and plug it back: it works again without restarting. Then (optional) a PlayStation controller.
+## 2. Test A: the upgrade over your saves (main PC, 20 minutes)
 
-## 4. The graphics card's benchmark
+Before installing:
 
-- [ ] With EmeraldTogether closed, copy a character's save that stands outdoors - `%LOCALAPPDATA%\PokemonPrivate\
-      characters\<character>\current.sav` - to your Desktop as `bench.sav` (the benchmark never saves, the copy only
-      keeps the original out of reach). In a Command Prompt:
+1. Count the spare copies of world saves. Right-click Start > **Terminal** (or **Windows PowerShell**) and paste:
 
-      ```
-      "%LOCALAPPDATA%\Programs\EmeraldTogether\_internal\runtime\pokeemerald-mp-diorama.exe" --save "%USERPROFILE%\Desktop\bench.sav" --benchmark 15 --bench-log "%USERPROFILE%\Desktop\benchmark.log"
-      ```
+   ```
+   Get-ChildItem "$env:LOCALAPPDATA\PokemonPrivate\launcher\players" -Directory | Get-ChildItem -Directory | ForEach-Object { "{0,5}  {1}" -f (Get-ChildItem $_.FullName -Filter *.export.json).Count, $_.FullName }
+   ```
 
-      The game Continues by itself, measures the 3D field at 1280x720, 1920x1080, 2560x1440 and 3840x2160 (offscreen
-      when the display is smaller) with VSync off and your quality settings, writes `benchmark.log` (average fps, 1 %
-      and 0.1 % lows, frame-time percentiles, the GPU and CPU) and quits. Send the log. The directive's targets (V39):
-      200+ fps at 1080p and 1440p, 180-200+ at 4K, 60+ on a low-end PC. The same command was run on GitHub's runner at
-      720p only, through software OpenGL.
-- [ ] Play ten minutes with F10 > Show frame rate on: Mauville west into Route 117 and east into Route 118, running (no
-      ground popping in at a map's edge, no hitch at the crossings); a battle; Lilycove. F10's Graphics quality Low and
-      Medium once each (V22: never looked at in the running game).
+   Each line is one world and player: the number of copies and the folder. Keep the window open.
 
-## 5. Multiplayer on one network (two PCs, then three or four)
+Install and check:
 
-- [ ] PC 1 hosts a world, PC 2 joins on the home network; the earlier checklist's items (privacy, Egg and Mail trades,
-      World Events, a battle, a co-op Gym battle, the Tower Duo, a wireless minigame, a busy Pokemon Center) as before.
-- [ ] Giving up in a battle together (#61): in a co-op Gym battle, the Tower Duo or a Frontier or League ladder battle,
-      GIVE UP asks "Giving up ends this battle for both players." first; No goes back to the battle, Yes ends it as the
-      team's loss on both PCs.
-- [ ] Closing the game in a battle together (#61's second half, KNOWN_ISSUES MS-16's updates of 2026-11-14): close PC
-      2's game 20 seconds into a co-op Gym battle (or a Tower Duo battle). For 3 minutes PC 1's launcher refuses Abandon
-      and says why (PC 2 may come back: Recover battle); start PC 2 again: its launcher ends the battle as it opens the
-      world, as the team's loss naming PC 2 ("BATTLE TOGETHER LOST" on both PCs; the Duo back to the floor after the
-      last checkpoint, nothing paid); parties, items and money as before the battle. A crash counts as leaving too (a
-      documented limit). Tried in real Linux games through real launchers, not on two PCs.
-- [ ] The Legendary Tickets' co-op routes (#62): a co-op achievement a ticket names (`docs/legendary-tickets.md`)
-      earns that ticket once for each player who took part, PLAYERS > World and my base > Frontier and League >
-      Legendary Tickets says GIVEN; a player who was not there does not get it.
+2. Double-click the Setup file and click through it. It replaces the installed version; it keeps your files.
+3. Start EmeraldTogether. Expected: the main menu with all your characters; possibly a green line "Your latest progress
+   was picked up".
+4. Paste the counting command again. Expected: every folder that had more than 40 now has exactly **40**; the others
+   are unchanged. (At most 200 are removed each time EmeraldTogether starts: a folder that had more than 240 needs
+   another start - close and reopen, count again.)
+5. For each character: **Solo** (and each world you host): it comes back exactly where it last saved, with its party.
+   A world you host asks once to get ready for the new version (it makes a backup first) - say yes.
+6. Play five minutes, save in the game (START > SAVE), close the game, open it again, **Continue**: the same place.
+7. If you play a world with a friend: once both PCs are upgraded, both can join; a PC still on the old version is
+   refused with "Different game versions".
 
-## 6. Multiplayer over the Internet
+## 3. Test B: a fresh install (a second PC, or a new Windows account on this one; 20 minutes)
 
-- [ ] The host's router lets the world in (UPnP/NAT-PMP, a forwarded port, or the relay); PC 2 on another network (a
-      phone's hotspot) joins; a trade and a battle between the two: the battle's turns do not stall between actions
-      (MS-62, M25: improved, never measured between two real PCs).
+A PC that never had EmeraldTogether is best. Otherwise make a test account: Settings > Accounts > **Other users**
+(or Family & other users) > **Add account** > "I don't have this person's sign-in information" > "Add a user without a
+Microsoft account" > name it `ETtest` > Next. Sign out, sign in as `ETtest`.
 
-## What changed in the 3D view since the earlier checklist (look while playing)
+1. Run Setup there and start EmeraldTogether. Expected: it checks the graphics card and uses the 3D view (or, on a card
+   too old for OpenGL 3.3, offers Classic 2D).
+2. Make a new character: the short introduction, choose a starter, then START > SAVE in the game. The hint at the
+   top reads "Press START, then PLAYER, then STYLE".
+3. Close the game and EmeraldTogether, start again, **Solo** > the character: the same place and party.
+4. Settings > Apps > Installed apps > EmeraldTogether > **Uninstall**. The folder `%LOCALAPPDATA%\PokemonPrivate` is
+   still there. Run Setup again: the character is still there and plays.
+5. Afterwards you can delete the `ETtest` account (Settings > Accounts > Other users > ETtest > Remove).
 
-- Rooms cut by hand or read off their cells (the object audit, #69): the Department Store, the museums, the harbors,
-  the Contest Halls, the Fan Clubs, Stern's Shipyard, the Pokemon League 1F, Ever Grande's halls, the Battle Pyramid's
-  lobby, Trainer Hill's entrance, floors and roof, the ship cabins - walls, counters and furniture stand.
-- The dotted seams gone (class 6): the S.S. Tidal's and the Abandoned Ship's cabins, the Ranking Hall's corner, Wanda's
-  house in Verdanturf (her rug by the chair, from a low camera), the tatami houses' entrances.
-- The Acro Bike's bumpy slopes in four-pixel stone steps (Safari Zone North, Jagged Pass; #71 B); the Safari Zone
-  South's rails on posts; Route 119's rails flat (#78, your choice).
-- The tall grass's outlines softer (#59 C); the ground under the voxel trees matching (#60 B); the Ranking Hall's
-  front without its two false windows (V44).
-- With the sprite pack: Role Play's white silhouette and Snatch's runner are the animated sprites now (S7). The CI
-  installers carry no sprite pack (their packaging logs: `HAVE_SPRITES: false`), so with them the battles draw the
-  GBA's sprites and S7 does not show; it shows only in a package built with the pack (`docs/battle-sprites.md`).
+## 4. Test C: controllers (10-15 minutes)
 
-Choices waiting for your eyes while you play (`docs/owner-decisions.md`): #75 a tall Pokemon's head behind the foe's
-lower databox in a double battle (Gardevoir in your left slot), #76 Spinda's spots, #77 a very tall Pokemon cut at the
-Classic 2D battle's frame (Lugia or Rayquaza with Classic 2D), #78 Route 119's flat rails.
+An Xbox controller (or any pad Windows calls an Xbox controller):
 
-And one preview to try if you like (#71 C, smooth slopes; off unless asked for, never tried on Windows): close
-EmeraldTogether, open a Command Prompt and type
+1. Plug it in, then start EmeraldTogether. The menu moves with the d-pad; **A** chooses, **B** goes back.
+2. In the game: the d-pad and the left stick walk; **A** talks and confirms; **B** and **X** cancel; **Start** opens
+   the menu; **Back** is Select; **LB/RB** are L/R; **Y** opens the details view in menus.
+3. A multiplayer question (a trade or a challenge): B answers No and never confirms; in a trade window B asks
+   "Cancel the trade?".
+4. Unplug it while walking, plug it back in: it works again without restarting.
 
-```
-set PKMN_DIORAMA_SMOOTH_SLOPES=1
-"%LOCALAPPDATA%\Programs\EmeraldTogether\EmeraldTogether.exe"
-```
+A PlayStation (DualShock 4, DualSense) or Switch Pro controller - **new in this build** (KNOWN_ISSUES MS-252; before
+it, such a pad worked only in the menu):
 
-The launcher started from that window passes the setting on to its game: Jagged Pass's bumpy slopes and Route 111's
-mud are smooth ramps instead of steps - ride the Acro Bike up and down them and the Mach Bike up the mud, and look at
-the rider on the slope. Starting EmeraldTogether the usual way is the steps again (B). Whether C becomes the default
-(the bumpy slopes only, or the muddy ones too) is your choice, #71.
+5. Unplug the Xbox controller (while one is connected, the game reads only it). Connect the other pad by USB or
+   Bluetooth and start EmeraldTogether.
+6. Repeat 1-4. PlayStation: **Cross** = A, **Circle** and **Square** = B, **Triangle** = details, **Options** = Start,
+   **Share/Create** = Select, **L1/R1** = L/R. Switch Pro: **A** (right) = A, **B** and **X** = B, **Y** = details,
+   **+** = Start, **-** = Select.
+7. The on-screen button hints show the Xbox letters (A, X, Y) for every pad. Tell me if you want PlayStation symbols.
+8. Only if that pad misbehaves: close EmeraldTogether, open `cmd` and type
+   `set PKMN_SDL_CONTROLLERS=0`, Enter, then `"%LOCALAPPDATA%\Programs\EmeraldTogether\EmeraldTogether.exe"`, Enter. The
+   game then ignores everything but an Xbox controller. Tell me what happened.
+
+## 5. Test D: the graphics card's benchmark (10 minutes, then 10 minutes of play)
+
+1. Close EmeraldTogether.
+2. Copy the save of a character who stands outdoors: `%LOCALAPPDATA%\PokemonPrivate\characters\<character>\current.sav`
+   (one folder per character) to your Desktop and rename the copy `bench.sav`. The benchmark never saves; the copy
+   only keeps the real save out of reach.
+3. Open `cmd` and paste (one line):
+
+   ```
+   "%LOCALAPPDATA%\Programs\EmeraldTogether\_internal\runtime\pokeemerald-mp-diorama.exe" --save "%USERPROFILE%\Desktop\bench.sav" --benchmark 15 --bench-log "%USERPROFILE%\Desktop\benchmark.log"
+   ```
+
+4. The game opens, continues the save by itself, measures the 3D view at 1280x720, 1920x1080, 2560x1440 and 3840x2160
+   (offscreen when the screen is smaller) with VSync off, and closes by itself after a few minutes. Don't touch it.
+5. Send me `benchmark.log` from the Desktop (average frame rate, the 1 % and 0.1 % lows, frame times, the graphics card
+   and processor). The targets: 200+ fps at 1080p and 1440p, 180-200+ at 4K, 60+ on a low-end PC.
+6. Then play ten minutes normally with **F10** > **Show frame rate** on: run from Mauville west into Route 117 and east
+   into Route 118 (nothing popping in at the map edges, no hitch where maps meet); fight a battle; walk around
+   Lilycove. In F10 set **Graphics quality** to Low and to Medium once each and look around.
+
+## 6. Test E: two PCs on the same network (30-45 minutes)
+
+1. PC 1: **Host World** > choose a world > open it to friends. It shows an invite code: send it to PC 2 (a message,
+   a USB stick).
+2. PC 2: **Join Friend** > join a new one with an invite code > paste it > choose a character > join.
+3. Both: you see each other walk; **PLAYERS** lists the other.
+4. A trade (PLAYERS > the other > trade): the Pokemon arrive on both sides; both save; reopen: still traded.
+5. A battle (PLAYERS > the other > challenge): it runs to the end; both back on the field.
+6. A co-op battle (a Gym battle together, or the Tower Duo): in it choose **GIVE UP**: it first asks "Giving up ends
+   this battle for both players."; **No** goes back to the battle; then Yes: the team's loss on both PCs.
+7. Closing a game during a co-op battle: about 20 seconds in, close PC 2's game window. For 3 minutes PC 1's launcher
+   refuses Abandon and says why. Start PC 2 again and open the world: the battle ends as the team's loss naming PC 2
+   ("BATTLE TOGETHER LOST" on both); parties, items and money as before the battle.
+8. Both stand in the same Pokemon Center with their partner Pokemon following; heal at the counter: no crash,
+   nothing garbled.
+9. If you have them: a third and a fourth PC join the same way.
+
+## 7. Test F: two PCs over the Internet (30 minutes)
+
+1. PC 1 (at home): **Host World** > the world > **Network settings**: **Internet access** > turn on (it explains and
+   asks first); **Automatic router setup** stays on. Host the world; allow EmeraldTogether when Windows Firewall asks.
+   The hosting window shows a line "Router: ..." - write it down: it says whether your router opened the port by
+   itself.
+2. Send PC 2 a new invite code (made after Internet access was turned on).
+3. PC 2 on another network - a phone's hotspot is easiest - **Join Friend** with that code.
+4. A trade and a battle. Watch the battle: the turns should not stall between actions. Note how long a turn takes.
+5. If joining fails: write down the exact message (it names the reason and what to do on each side). If the router
+   refused, forward the port shown in Network settings to PC 1 in the router's page; behind CGNAT (the "Router:" line
+   says so) a forward cannot work - then the relay or Tailscale (`HOSTING.txt` in
+   `%LOCALAPPDATA%\Programs\EmeraldTogether` explains both).
+
+## 8. The sprite pack (only if you have `battle-sprites.ebsp`; 10 minutes)
+
+The CI installers carry no sprite pack, so their battles draw the game's own GBA sprites. To test yours:
+
+1. Close EmeraldTogether. Open `cmd` and type (your pack's real path):
+
+   ```
+   set PKMN_BATTLE_SPRITES_PACK=C:\path\to\battle-sprites.ebsp
+   set PKMN_BATTLE_SPRITES_LOG=1
+   "%LOCALAPPDATA%\Programs\EmeraldTogether\EmeraldTogether.exe"
+   ```
+
+2. In the 3D view, start a wild battle: both Pokemon are the pack's animated sprites.
+3. Press **F4** (the classic view) during a battle, or play a Classic 2D game: the battles draw the GBA sprites (your
+   #77).
+4. A Spinda: its own GBA picture with its own spots (your #76).
+5. Send the newest `launcher\launches\...\runtime.log`: its "battle sprites" lines say which picture each battler used
+   and why.
+
+## 9. The slopes (5 minutes)
+
+Jagged Pass with the Acro Bike: its bumpy slopes are now smooth ramps (your #71) - ride up and down; the rider stands
+on the slope, nothing sinks or floats, and you can stop and turn as before. The Mach Bike's muddy slopes (Route 111,
+115, 119) keep their steps. To compare: `set PKMN_DIORAMA_SMOOTH_SLOPES=0` before starting (all steps) or `=1` (the mud
+smooth too), as in test C, step 8.
+
+## What to send back
+
+- `benchmark.log` (test D).
+- The save-copy counts before and after (test A).
+- For each test: done / failed, with the notes and files named at the top of this page for anything that failed.
+
+## Done here first (not a substitute for the above)
+
+- **Controllers** (MS-252): a virtual SDL controller through the game's real event loop, 63 of 63 checks (every
+  button, the stick, a quick tap, unplugging while held), in the Linux 3D and Classic builds; a real game walked and
+  used its START menu with only that controller (its d-pad, then its stick), the same as with the keyboard. On
+  Windows the same self-test runs in run 479.
+- **Benchmark**: the exact command of test D run end to end (Linux, software OpenGL): it continued the save, measured
+  every resolution and wrote the log.
+- **Upgrade and fresh install**: every full run installs, starts, repairs and uninstalls the installer on a Windows
+  runner, updates from the previous run's installer with two players' worlds and plays on from those saves, and does
+  it again under a user folder named "José 测试" (run 478: all passed).
+- **Multiplayer**: 2-4 real games through real launchers on one machine (Linux and Windows runners): trades,
+  battles, co-op, the Battle Tower, interrupted battles. Never between separate PCs or across a real router.
+- **Sprite pack**: a stand-in pack of plain shapes, in the 3D and Classic test builds: the pack in 3D battles, the
+  GBA sprites in 2D, Spinda's own spots, Role Play's and Snatch's pictures.
+
+The earlier, longer checklist (`docs/windows-test-20261106.md`) still holds for what it lists.

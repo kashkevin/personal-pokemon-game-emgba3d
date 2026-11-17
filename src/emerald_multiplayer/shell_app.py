@@ -878,8 +878,9 @@ class ShellApp:
                     internet = False
                 elif self.confirm("Allow Internet connections?",
                                   "Internet connections let anyone with an invite code and your public address reach this PC.\n"
-                                  "Your router must forward the game's port to it and your firewall must allow it.\n"
-                                  "EmeraldTogether does not set that up and there is no relay server.",
+                                  "The port must be forwarded to this PC: the game asks your router itself when automatic router\n"
+                                  "setup is on, but many routers refuse, and none can behind CGNAT (use a relay or Tailscale then).\n"
+                                  "Windows Firewall asks once whether EmeraldTogether may accept connections: allow it.",
                                   "Allow Internet connections", warn=True):
                     internet = True
             elif event.id == "address":
