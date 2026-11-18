@@ -1,7 +1,7 @@
 # Release tests on your own PCs, step by step (2026-11-17, revised 2026-11-18)
 
-Six tests that only a real PC can do: an upgrade over your saves, a fresh install, controllers, the graphics card's
-benchmark, two PCs on one network, and two PCs over the Internet; then the sprite pack and the slopes. Everything a
+The tests that only a real PC can do: an upgrade over your saves, a fresh install, controllers, the graphics card's
+benchmark, two PCs on one network, two PCs over the Internet and a long session; then the sprite pack and the slopes. Everything a
 machine without a graphics card, a controller or a second PC could do was done first (end of this page). Nothing here
 has been tried on a real PC yet: each box is open until you tick it.
 
@@ -152,6 +152,25 @@ it, such a pad worked only in the menu):
    says so) a forward cannot work - then the relay or Tailscale (`HOSTING.txt` in
    `%LOCALAPPDATA%\Programs\EmeraldTogether` explains both).
 
+6. Optional, for a friend behind CGNAT (KNOWN_ISSUES NU-4): the same join over Tailscale (both PCs in your Tailscale
+   network; choose the PC's Tailscale address as the world's address) and through a relay you run yourself
+   (`HOSTING.txt` explains both). Each should connect and play a battle or a trade.
+
+## 7b. Test G: a long session's speed and sound (1-2 hours of ordinary play; KNOWN_ISSUES MS-89)
+
+1. Close EmeraldTogether. Open `cmd` and type:
+
+   ```
+   set PKMN_PERF_LOG=1
+   set PKMN_DIORAMA_PROFILE=1
+   "%LOCALAPPDATA%\Programs\EmeraldTogether\EmeraldTogether.exe"
+   ```
+
+2. Play normally for one to two hours in the 3D view (walking, battles, menus). Note if the game gets laggier or the
+   sound falls behind the picture.
+3. Close the game, then send me the newest folder's `runtime.log` from `%LOCALAPPDATA%\PokemonPrivate\launcher\launches\`
+   (every 5 seconds it records the frame rate, the drawing time and the sound queue).
+
 ## 8. The sprite pack (only if you have `battle-sprites.ebsp`; 10 minutes)
 
 The CI installers carry no sprite pack, so their battles draw the game's own GBA sprites. To test yours:
@@ -180,7 +199,7 @@ smooth too), as in test C, step 8.
 
 ## What to send back
 
-- `benchmark.log` (test D).
+- `benchmark.log` (test D) and the long session's `runtime.log` (test G).
 - The save-copy counts before and after (test A).
 - For each test: done / failed, with the notes and files named at the top of this page for anything that failed.
 
