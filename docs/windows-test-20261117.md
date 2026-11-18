@@ -6,8 +6,9 @@ machine without a graphics card, a controller or a second PC could do was done f
 has been tried on a real PC yet: each box is open until you tick it.
 
 The installer to test: **CI-479** (`EmeraldTogether-Setup-Native-3D-CI-479.exe`, engine `c7b0d80d`; run 479 of
-2026-11-17/18 - its result and the file's SHA-256 are filled in below once every job has finished), or the next run's
-if it replaces it (named here when it does). It is for your
+2026-11-17/18: **all 93 jobs passed**, the update from CI-478 with players' saves among them; its SHA-256 in step 0.4),
+or run 482's once it has passed - the same build with the launcher fixes of the verification audit
+(`docs/verification-audit-20261117.md`); it is named here when it does. It is for your
 own PCs only; please do not pass it on. About 2-3 hours in all; tests 1-4 need one PC, tests 5-6 two.
 
 When something goes wrong: note the time and what you did, press **F12** in the game for a picture (saved in

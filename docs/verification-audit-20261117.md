@@ -151,7 +151,9 @@ named their runs only in other documents.
 ## What is still not shown, in one place
 
 * **MS-259's cause** - a 0.2 s status seen once, not reproduced with every failed save traced.
-* **MS-123** - the fixed path (a full queue to the companion) cannot be produced on Linux's loopback.
+* **MS-123** - the fixed path (a full queue to the companion) cannot be produced on Linux's loopback: each of the
+  game's channels waits for an answer before it writes again, so the queue fills only when several answer at once
+  into a socket that does not drain; the engine's unit test (`save_response_waits_for_a_full_queue`) fills it by hand.
 * **MS-124's 1 s against 10 s** - every operation survived the stalls, but no write waited long enough to tell the
   limits apart here; the save timeout it uncovered is fixed (MS-255).
 * **MS-51's exact sequence** - closing before a save cannot be produced by play (the launcher saves first).
