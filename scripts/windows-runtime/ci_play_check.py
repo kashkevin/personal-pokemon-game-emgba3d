@@ -1356,12 +1356,18 @@ def version_mismatch_check(check, host, friend):
 
 
 def port_taken_check(check, host):
-    """--port-taken (KNOWN_ISSUES MS-257): one player as installed. A character, then a hosted world (its port free then);
-    another program then listens on the world's own address and port (a plain socket of this check's, as any program
-    holding the port) and the character enters the world for the first time: its setup must stop with the port's own
-    reason in the menu ("This world's port is already in use on this PC...") - not "Close the running host", not
-    "could not finish". Once that program has closed, the same entry registers the character, plays and saves; the
-    game closes normally; Exit 0, no error recorded."""
+    """--port-taken (KNOWN_ISSUES MS-257): one player as installed, a character and a hosted world (its port free then).
+
+      A. The host's own character setup listens on this PC's loopback address and the world's port (character_play:
+         127.0.0.1), whatever address the world is hosted on. Another program - a plain socket of this check's - listens
+         there as the character first enters: the setup must stop with the port's own reason in the menu ("This world's
+         port is already in use on this PC...") - not "Close the running host", not "could not finish". Once that
+         program has closed, the same entry registers the character, plays and saves; the game closes normally.
+      B. A world hosted on a local-network address listens there when played: another program listening on that address
+         and port as the host plays the world again - what the menu says is read and recorded (not a session that seems
+         to host while a friend's connection would reach the other program); then, the port free, the world plays on.
+
+    Exit 0; the menu keeps a refused setup's reason in last-error.txt (its diagnosis), nothing else may be recorded."""
     import socket
     report = {}
     host.start()
@@ -1369,7 +1375,7 @@ def port_taken_check(check, host):
     main = host.expect("main")
     host.choose(main, "host")
     host.choose(host.expect("host_list"), "create")
-    form = host.expect("create_world")
+    host.expect("create_world")
     host.key("backspace", 40)
     host.text("CI Hosted World")
     host.key("enter")                          # Your name
@@ -1377,22 +1383,37 @@ def port_taken_check(check, host):
     host.text("Host")
     host.key("enter")                          # Port (kept)
     host.key("enter")                          # the Network row
-    if check.loopback:
-        host.key("enter")                      # Network: This PC only
-        host.choose(host.expect("choose"), "127.0.0.1")
-        host.choose(host.expect("create_world"), "create")
-    else:
-        focusable = [item[1] for item in form["items"] if "d" not in item[3]]
-        host.key("down", focusable.index("create") - focusable.index("network"))
-        host.key("enter")                      # Create world
+    host.key("enter")                          # Network: this PC only, or its local-network address (named: a PC whose
+    chooser = host.expect("choose")            # default address is not one it can host on picks it too)
+    rows = [item[1] for item in chooser["items"] if item[0] == "row"]
+    lan = next((row for row in rows if row != "127.0.0.1"), None)
+    require(check.loopback or lan, f"{host.name}: no local-network address to host on: {[i[2] for i in chooser['items']]}")
+    host.choose(chooser, "127.0.0.1" if check.loopback else lan)
+    host.choose(host.expect("create_world"), "create")
     world = wait(lambda: host.world("CI Hosted World"), 120)
     require(world, f"{host.name}: the hosted world was not created ({host.current() and host.current()['notes'][:2]})")
     address, port = world["bind_address"], world["descriptor"]["port"]
-    host.log(f"Host World: created {world['name']} (listens on {address}:{port}); another program now listens there")
+    report["world"] = dict(address=address, port=port)
+    host.log(f"Host World: created {world['name']} (listens on {address}:{port}); another program now listens on "
+             f"127.0.0.1:{port}, where the character's setup listens")
+
+    def back_to_world():
+        for _ in range(4):
+            current = host.current()
+            if current and current["id"] == "world":
+                break
+            if current and current["id"] == "host_list":
+                rows = [item for item in current["items"] if item[2] and "CI Hosted World" in item[2]]
+                host.choose(current, rows[0][1] if rows else current["items"][0][1])
+                continue
+            host.key("escape")
+            time.sleep(1.5)
+        return host.expect("world", 60)
+
     screen = host.expect("world", 60)
     other = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        other.bind((address, port))
+        other.bind(("127.0.0.1", port))
         other.listen(1)
         host.choose(screen, "host")
         shown = host.expect(("bring_character", "graphics", "message", "host_list", "session"), 120)
@@ -1404,12 +1425,12 @@ def port_taken_check(check, host):
             shown = host.expect(("message", "host_list", "session"), 120)
         words = " ".join([shown["title"], *shown["notes"], str(shown.get("status") or "")])
         check.picture("port-in-use")
-        report["refusal"] = dict(screen=shown["id"], title=shown["title"], notes=shown["notes"][:6])
+        report["setup_refusal"] = dict(screen=shown["id"], title=shown["title"], notes=shown["notes"][:6])
         require(shown["id"] == "message" and "port is already in use" in words,
                 f"{host.name}: the menu did not give the port's reason: {shown['id']} {shown['title']} {shown['notes'][:4]}")
         require("Close the running host before" not in words and "could not finish" not in words,
                 f"{host.name}: the menu gave the old or no reason: {shown['notes'][:4]}")
-        host.log(f"with another program on {address}:{port}, the first entry stopped: {shown['title']} - "
+        host.log(f"A. with another program on 127.0.0.1:{port}, the first entry stopped: {shown['title']} - "
                  + " / ".join(note for note in shown["notes"][:2] if note))
         # the menu keeps the refused setup's reason in last-error.txt (its diagnosis); nothing else may be recorded
         refused = host.error_text()
@@ -1419,26 +1440,62 @@ def port_taken_check(check, host):
     finally:
         other.close()
     host.key("enter")                              # the message read; the program holding the port has closed
-    for _ in range(4):
-        current = host.current()
-        if current and current["id"] == "world":
-            break
-        if current and current["id"] == "host_list":
-            rows = [item for item in current["items"] if item[2] and "CI Hosted World" in item[2]]
-            host.choose(current, rows[0][1] if rows else current["items"][0][1])
-            continue
-        host.key("escape")
-        time.sleep(1.5)
-    host.choose(host.expect("world", 60), "host")
+    host.choose(back_to_world(), "host")
     game, report["after"] = check.enter_and_play(host, world, 0, keep_open=True)
-    host.log("the other program closed: the same entry registered the character and saved")
+    host.log("A. the other program closed: the same entry registered the character and saved")
     check.close(host, game)
     host.expect("host_list", 60)
+    if address != "127.0.0.1":
+        host.choose(host.current(), next((item[1] for item in host.current()["items"]
+                                          if item[2] and "CI Hosted World" in item[2]), host.current()["items"][0][1]))
+        screen = host.expect("world", 60)
+        before = revision(world, 0)
+        other = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            other.bind((address, port))
+            other.listen(1)
+            host.log(f"B. another program now listens on {address}:{port}, where the world is hosted; playing it")
+            host.choose(screen, "host")
+            shown = host.expect(("message", "session", "host_list", "world"), 120,
+                                where=lambda s: s["id"] != "session" or bool(s.get("status")))
+            time.sleep(3)
+            shown = host.current()
+            check.picture("hosting-port-in-use")
+            report["hosting_refusal"] = dict(screen=shown["id"], title=shown["title"], status=shown.get("status"),
+                                             notes=shown["notes"][:6])
+            host.log(f"B. the menu shows {shown['id']}: {shown['title']} - "
+                     + " / ".join(note for note in shown["notes"][:3] if note) + f" (status {shown.get('status')})")
+            hosted = True
+            try:
+                probe = socket.create_connection((address, port), timeout=3)
+                probe.close()
+            except OSError:
+                hosted = False
+            report["hosting_refusal"]["connect_reaches_a_listener"] = hosted
+        finally:
+            other.close()
+        if shown["id"] == "session":                  # the session began beside the other program: close its game first
+            try:
+                started = host.game(seconds=30)
+            except CheckFailed:
+                started = None
+            if started and host.desk.alive(started[0]):
+                check.close(host, started, normal=False)
+        for _ in range(6):
+            current = host.current()
+            if current and current["id"] in ("world", "host_list"):
+                break
+            host.key("escape" if current and current["id"] != "message" else "enter")
+            time.sleep(1.5)
+        host.choose(back_to_world(), "host")
+        game, report["after_hosting"] = check.play(host, world, 0, before or 1, keep_open=True)
+        host.log("B. the port free again: the world played on and saved")
+        check.close(host, game)
+        host.expect("host_list", 60)
     check.finish(host)
     require(host.error_text() == refused, f"{host.name}: an error was recorded after the refusal: {host.error_text()[-2000:]}")
     check.log("no error was recorded but the refusal's own reason" if refused else "no error was recorded")
     return report
-
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
