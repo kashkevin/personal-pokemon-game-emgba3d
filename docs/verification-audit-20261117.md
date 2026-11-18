@@ -67,8 +67,8 @@ below).
 | MS-92 | A shared wild Pokemon is released when its battler disconnects | The battler's game killed: "busy" for the other player during the grace (by design), released 606.6 s later (the grace is 600 active seconds), then claimed at once | **Passed** |
 | M21 | The first World Event action after the launcher restarts the game is not lost | After a restart, the new game's first look was forwarded and stored in 0.71 s | **Passed** |
 | MS-122 | Ctrl+P, F5 and F9 refused during a link battle or a held trade | Two **3D** test builds: each key during the battle and the held trade: "No pausing during a link battle or trade.", the game ran on, the battle and the trades to their ends (pictured) | **Passed** |
-| MS-123 | A full queue to the companion does not stop a battle or trade | The game's queue stayed at 0 of 4 through four companion freezes: Linux's loopback absorbs the game's writes, so the fixed path never runs | **Not reachable here** (needs smaller socket buffers, as on Windows, or a test hook) |
-| MS-124 | Players on lossy links are not dropped when one write stalls | Behind a stalled TCP proxy (3 s during a save, a battle and a download): connected throughout, every operation finished; no write waited over 0.3 s, so the old 1 s limit was never tested against the new 10 s. **And a 5 s stall at a save's start failed the save** while the link survived: **MS-255**, fixed (below) | **Passed** for what it can show; the finding fixed |
+| MS-123 | A full queue to the companion does not stop a battle or trade | The game's queue stayed at 0 of 4 through four companion freezes (Linux's loopback absorbs the game's writes). **2026-11-18, with a test hook** (the friend's game's sends held, as a full socket on Windows): the queue 4 of 4 after two PLAYERS openings; the save's first answer met the full queue and waited 3 s, the bridge connected; then the queue drained and the save landed (`queue-2`; KNOWN_ISSUES MS-123's update) | **Passed** (with the hook) |
+| MS-124 | Players on lossy links are not dropped when one write stalls | Behind a stalled TCP proxy (3 s during a save, a battle and a download): connected throughout, every operation finished; no write waited over 0.3 s, so the old 1 s limit was never tested against the new 10 s. **And a 5 s stall at a save's start failed the save** while the link survived: **MS-255**, fixed (below) | **Passed** for what it can show; the finding fixed. **2026-11-18**: both players walking through an 8 s stall made the host's write wait 1.69 s - the friend stayed on its session; under the old 1 s the same stall dropped it (`walk-2`, `walk-ab2`; KNOWN_ISSUES MS-124's update): **passed** |
 
 ### Launcher, saves, full disks and the host's clock (cluster B: L, real menus or the launcher harness, real stores)
 
@@ -150,12 +150,11 @@ named their runs only in other documents.
 
 ## What is still not shown, in one place
 
+MS-123 (a full queue to the companion) and MS-124's 1 s against 10 s, listed here until then, were shown in real
+games on 2026-11-18: MS-123 with a test hook holding the game's sends, MS-124 by a stall while both players walked,
+with the old limit run to compare (KNOWN_ISSUES' updates; TEST_LEDGER).
+
 * **MS-259's cause** - a 0.2 s status seen once, not reproduced with every failed save traced.
-* **MS-123** - the fixed path (a full queue to the companion) cannot be produced on Linux's loopback: each of the
-  game's channels waits for an answer before it writes again, so the queue fills only when several answer at once
-  into a socket that does not drain; the engine's unit test (`save_response_waits_for_a_full_queue`) fills it by hand.
-* **MS-124's 1 s against 10 s** - every operation survived the stalls, but no write waited long enough to tell the
-  limits apart here; the save timeout it uncovered is fixed (MS-255).
 * **MS-51's exact sequence** - closing before a save cannot be produced by play (the launcher saves first).
 * **G1, MS-10** - the trade-effect path is not in the package.
 * **Windows**: none of this audit's runs were on Windows. Its fixes (MS-254 to MS-258, NU-1's and NU-3's gaps) went
