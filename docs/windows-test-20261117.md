@@ -5,10 +5,10 @@ benchmark, two PCs on one network, two PCs over the Internet and a long session;
 machine without a graphics card, a controller or a second PC could do was done first (end of this page). Nothing here
 has been tried on a real PC yet: each box is open until you tick it.
 
-The installer to test: **CI-479** (`EmeraldTogether-Setup-Native-3D-CI-479.exe`, engine `c7b0d80d`; run 479 of
-2026-11-17/18: **all 93 jobs passed**, the update from CI-478 with players' saves among them; its SHA-256 in step 0.4),
-or run 482's once it has passed - the same build with the launcher fixes of the verification audit
-(`docs/verification-audit-20261117.md`); it is named here when it does. It is for your
+The installer to test: **CI-482** (`EmeraldTogether-Setup-Native-3D-CI-482.exe`, engine `25eb56eb`; run 482 of
+2026-11-18: **all 93 jobs passed**, the update from CI-479 with players' saves among them; its SHA-256 in step 0.4):
+run 479's build with the launcher fixes of the verification audit (`docs/verification-audit-20261117.md`) and the
+prompts in each controller's own buttons (`docs/package-20261118b.md`). It is for your
 own PCs only; please do not pass it on. About 2-3 hours in all; tests 1-4 need one PC, tests 5-6 two.
 
 When something goes wrong: note the time and what you did, press **F12** in the game for a picture (saved in
@@ -17,18 +17,18 @@ When something goes wrong: note the time and what you did, press **F12** in the 
 
 ## 0. Get the installer (5 minutes, once)
 
-1. Signed in to GitHub, open <https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44197476274>.
+1. Signed in to GitHub, open <https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44230553383>.
 2. Scroll to **Artifacts** and click **EmeraldTogether-Windows-Installer** (a zip of about 59 MB). GitHub keeps it 7
    days after the run (until about 2026-11-25).
 3. Right-click the zip > **Extract All** > **Extract**.
 4. Check the file: press Win+R, type `cmd`, Enter, and paste (the folder is where the zip was extracted):
 
    ```
-   certutil -hashfile "%USERPROFILE%\Downloads\EmeraldTogether-Windows-Installer\EmeraldTogether-Setup-Native-3D-CI-479.exe" SHA256
+   certutil -hashfile "%USERPROFILE%\Downloads\EmeraldTogether-Windows-Installer\EmeraldTogether-Setup-Native-3D-CI-482.exe" SHA256
    ```
 
-   The second line it prints must be `36269334652c6ddfceb5b2232c5a2f7b280883b06a47c22c80d968459fbbccd7` (the file is
-   59,062,794 bytes). If not, stop and tell me.
+   The second line it prints must be `7fc796f9efbee3af5ff6ca7e89d2ee5d2dd84d381bcf95a246a8c53ab715a87b` (the file is
+   59,065,499 bytes). If not, stop and tell me.
 5. Copy the exe to each PC you test on (USB stick or a shared folder).
 6. The installer is not signed: Windows may say "Windows protected your PC". Click **More info** > **Run anyway**.
 
@@ -219,12 +219,13 @@ smooth too), as in test C, step 8.
 - **Controllers** (MS-252): a virtual SDL controller through the game's real event loop, 63 of 63 checks (every
   button, the stick, a quick tap, unplugging while held), in the Linux 3D and Classic builds; a real game walked and
   used its START menu with only that controller (its d-pad, then its stick), the same as with the keyboard. On
-  Windows the same self-test runs in run 479.
+  Windows the same self-test passed in runs 479 and 482 (63 of 63), and in the 3D game in run 482 (68 of 68: the
+  prompts' buttons for a DualShock 4, a DualSense and a Switch Pro among them).
 - **Benchmark**: the exact command of test D run end to end (Linux, software OpenGL): it continued the save, measured
   every resolution and wrote the log.
 - **Upgrade and fresh install**: every full run installs, starts, repairs and uninstalls the installer on a Windows
   runner, updates from the previous run's installer with two players' worlds and plays on from those saves, and does
-  it again under a user folder named "José 测试" (run 478: all passed).
+  it again under a user folder named "José 测试" (run 482: all passed, the update from CI-479 among them).
 - **Multiplayer**: 2-4 real games through real launchers on one machine (Linux and Windows runners): trades,
   battles, co-op, the Battle Tower, interrupted battles. Never between separate PCs or across a real router.
 - **Sprite pack**: a stand-in pack of plain shapes, in the 3D and Classic test builds: the pack in 3D battles, the

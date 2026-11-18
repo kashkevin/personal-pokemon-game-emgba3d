@@ -158,8 +158,11 @@ named their runs only in other documents.
   limits apart here; the save timeout it uncovered is fixed (MS-255).
 * **MS-51's exact sequence** - closing before a save cannot be produced by play (the launcher saves first).
 * **G1, MS-10** - the trade-effect path is not in the package.
-* **Windows**: none of this audit's runs were on Windows; the next full `windows-package` run carries its fixes
-  (W), and the owner's checklist the real PCs (PC).
+* **Windows**: none of this audit's runs were on Windows. Its fixes (MS-254 to MS-258, NU-1's and NU-3's gaps) went
+  into the full `windows-package` run [482](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44230553383)
+  (W, 2026-11-18: all 93 jobs passed - each fix's unit tests in the app's tests on Windows, saving and joining in the
+  installation check; the rechecks themselves stay L only); MS-260's goes into the next full run; the owner's checklist
+  covers the real PCs (PC).
 
 ## Where the evidence is
 
