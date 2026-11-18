@@ -132,6 +132,8 @@ _TEXT = {
     "runtime_size": "The installed runtime could not be verified.",
     "trade_recovery_unavailable": "The host does not support the character recovery required by this build.",
     "session_failed": "The game could not open. Private character and recovery files have been retained.",
+    # KNOWN_ISSUES MS-257: a hosted world's port held by another program as its host plays it (the setup's own words)
+    "port_in_use": "This world's port is already in use on this PC: close the running host, or the other program using that port, then try again.",
     "saving": "Saving your character to the host… Keep the game open until this finishes.",
     "saved": "Character saved to the host. You can keep playing or close the game.",
     "save_not_ready": "Return to a safe place outside menus and battles, then press Save now again.",

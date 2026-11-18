@@ -61,7 +61,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         # KNOWN_ISSUES MS-28: another version refused at Check and join, both ways (the update check's earlier installer)
         self.assertIn('--setup "$this" --other-setup "$earlier"', check)
         self.assertIn('--setup "$earlier" --other-setup "$this"', check)
-        # KNOWN_ISSUES MS-257: the world's port taken by another program as the character first enters
+        # KNOWN_ISSUES MS-257: the world's port taken by another program as the character first enters, then as the
+        # world is played (the hosting session's own refusal)
         self.assertIn("--label port --port-taken", check)
         # KNOWN_ISSUES MS-258: the Tower Duo's pages with double and triple presses, in Windows game processes
         self.assertIn('{name: duo-presses, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 '

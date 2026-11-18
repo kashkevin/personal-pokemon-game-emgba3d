@@ -10,10 +10,12 @@ import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from enum import Enum
+import errno
 import hashlib
 import inspect
 import json
 import math
+import os
 from pathlib import Path
 import re
 import secrets
@@ -130,6 +132,8 @@ _MESSAGES = {
     "host_restart_not_ready": "Host restart requires this host's disconnected, retained original battle or prepared trade with no other operation running.",
     "host_restart_failed": "The host service could not restart; retain every original game and retry after restoring the host configuration.",
     "ticket_settings_invalid": "This world's Legendary Tickets setting (the .tickets.json file beside the world) cannot be used; correct or remove it.",
+    # KNOWN_ISSUES MS-257: the same words as the character setup's (launcher_setup) for the same cause
+    "port_in_use": "This world's port is already in use on this PC: close the running host, or the other program using that port, then try again.",
 }
 
 # The host's refusals of Abandon (abandon_battle) that the status keeps while the battle stays held.
@@ -155,6 +159,16 @@ def abandoned_code(views):
     """The status after interrupted battles were abandoned: a battle together that a game left counts as the team's loss
     (the host's answer names who left; the owner's decision #61), any other one has no result."""
     return "battle_abandoned_lost" if any(view.get("left") for view in views) else "battle_abandoned"
+
+
+def port_taken(error, *, windows=os.name == "nt"):
+    """Whether a world listener's bind failed because something else holds its address and port (KNOWN_ISSUES MS-257):
+    EADDRINUSE (on Windows WSAEADDRINUSE, errno 10048), and on Windows also EACCES - WSAEACCES, its answer when another
+    program holds the port for its own use alone. Any other failure (an address this PC no longer has, a certificate) is
+    not this."""
+    if not isinstance(error, OSError):
+        return False
+    return error.errno in (errno.EADDRINUSE, 10048) or (windows and error.errno == errno.EACCES)
 
 
 def failure_name(error):
@@ -746,9 +760,17 @@ class LauncherSession:
             self._server.enable_championship_computers()   # step 18: computer places in a Championship
         if ticket_sources is not None:
             self._server.enable_tickets(ticket_sources)     # the Legendary Tickets: the installed game applies kind 8
-        await self._server.start(self._bind_address, host.port, allow_lan=True,
-                                 public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
-                                 relay=self._network is not None and self._network.relay_enabled)
+        try:
+            await self._server.start(self._bind_address, host.port, allow_lan=True,
+                                     public=self._public, tls=host.server_tls, wildcard=self._bind_address == WILDCARD,
+                                     relay=self._network is not None and self._network.relay_enabled)
+        except OSError as error:
+            if not port_taken(error):
+                raise
+            # KNOWN_ISSUES MS-257 (installed-world-check run 46, Windows): another program on a world's own address and
+            # port as its host played it said only "The game could not open... Reason: OSError"; the first entry's setup
+            # already gave the port's reason. The session's cleanup closes the store; nothing was written.
+            raise LauncherSessionError("port_in_use", cause=_failure_cause(error)) from None
         self._store.set_busy_timeout(BUSY_TIMEOUT)   # play: the world server's loop must not wait long (MS-17)
 
     async def _start_reachability(self, host):

@@ -1,13 +1,14 @@
 """Real TLS/SQLite/companion lifecycle; Python child stands in for SDL only."""
 import asyncio
 from dataclasses import asdict, replace
+import errno
 import hashlib
 import json
 from pathlib import Path
 import socket
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from emerald_multiplayer.checkpoint_mirror import MirrorError, MirrorLease
@@ -15,9 +16,10 @@ from emerald_multiplayer.checkpoint_client import CheckpointClient, CheckpointEr
 from emerald_multiplayer.companion import Companion, TradeError
 from emerald_multiplayer.host_world import HostWorld
 from emerald_multiplayer.launcher_session import (
-    GameInstallation, LauncherSession, LauncherSessionError, SessionState,
+    GameInstallation, LauncherSession, LauncherSessionError, SessionState, port_taken,
 )
 from emerald_multiplayer.ownership import OWNERSHIP_PROFILE
+from emerald_multiplayer.server import WorldServer
 from emerald_multiplayer.flash import inspect_flash
 from emerald_multiplayer.ownership import inspect_ownership
 from emerald_multiplayer.trade_flash import build_party_swap
@@ -425,6 +427,48 @@ class LauncherSessionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(caught.exception.code, "installation_changed")
             self.assertIsNone(session._store)
             self.assertEqual(session.status.state, SessionState.FAILED)
+
+    async def test_a_world_whose_port_another_program_holds_says_so_and_hosts_once_it_is_free(self):
+        # KNOWN_ISSUES MS-257 (installed-world-check run 46, Windows): the host's Play said only "The game could not open...
+        # Reason: OSError" while the first entry's setup gave the port's reason.
+        other = socket.socket()
+        self.addCleanup(other.close)
+        other.bind(("127.0.0.1", self.host.port))
+        other.listen(1)
+        session = self.session()
+        with self.assertRaises(LauncherSessionError) as caught:
+            async with session.open():
+                self.fail("a world whose port another program holds cannot host")
+        self.assertEqual(caught.exception.code, "port_in_use")
+        self.assertIn("port is already in use on this PC", str(caught.exception))
+        self.assertEqual(caught.exception.cause_name, "OSError")      # the troubleshooting file names the address and port
+        self.assertIn(f"('127.0.0.1', {self.host.port})", caught.exception.cause)
+        self.assertEqual((session.status.state, session.status.code), (SessionState.FAILED, "port_in_use"))
+        self.assertIsNone(session._runtime)
+        self.assertFalse(self.calls)                                   # no game was started
+        other.close()
+        session = self.session()                                       # nothing was left held: the world hosts
+        async with session.open():
+            self.assertEqual(session.status.state, SessionState.READY)
+
+    async def test_any_other_listening_failure_keeps_the_general_message_and_its_cause(self):
+        refusal = OSError(errno.EADDRNOTAVAIL, "error while attempting to bind on address: cannot assign requested address")
+        with patch.object(WorldServer, "start", AsyncMock(side_effect=refusal)):
+            session = self.session()
+            with self.assertRaises(LauncherSessionError) as caught:
+                async with session.open():
+                    self.fail("a world that cannot listen cannot host")
+        self.assertEqual(caught.exception.code, "session_failed")
+        self.assertEqual(caught.exception.cause_name, "OSError")
+
+    def test_only_an_address_in_use_is_a_taken_port(self):
+        self.assertTrue(port_taken(OSError(errno.EADDRINUSE, "address already in use")))
+        self.assertTrue(port_taken(OSError(10048, "only one usage of each socket address is normally permitted")))
+        # Windows' WSAEACCES (errno 13 in Python): another program holds the port for its own use alone
+        self.assertTrue(port_taken(OSError(errno.EACCES, "access forbidden"), windows=True))
+        self.assertFalse(port_taken(OSError(errno.EACCES, "permission denied"), windows=False))   # Linux: a port below 1024
+        self.assertFalse(port_taken(OSError(errno.EADDRNOTAVAIL, "cannot assign requested address")))
+        self.assertFalse(port_taken(ValueError("bind a numeric loopback address")))
 
     async def test_internet_world_listens_on_every_interface_and_the_host_game_uses_loopback(self):
         from emerald_multiplayer.network_settings import WorldNetwork

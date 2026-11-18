@@ -112,22 +112,24 @@ class LauncherExitTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_idle_link_end_at_a_normal_close_never_shows_the_recovery_warning(self):
         """KNOWN_ISSUES MS-259: the game's link ends a moment before its zero exit is seen. Saving is refused at once,
         but the player was shown "connection lost" and "This save needs recovery" until the exit cleared them (0.2 s
-        in the audit's run)."""
-        async with self.playing_worker() as (session, task, worker):
-            self.disconnect_bridge(session)
-            await wait_until(lambda: session._save_failed)
-            self.assertTrue(session._idle_save_disconnect)
-            self.assertFalse(session.can_save)
-            await asyncio.sleep(.1)
-            self.assertNotEqual(session.status.code, "save_recovery_required")
-            self.exit_signal.write_text("0")
-            self.assertEqual(await task, "game_closed")
-            codes = []
-            while not worker.events.empty():
-                codes.append(worker.events.get_nowait().code)
-            # neither the recovery warning nor "connection lost" while the game closed normally
-            self.assertNotIn("save_recovery_required", codes)
-            self.assertNotIn("connection_lost", codes)
+        in the audit's run). The wait is set longer than a loaded machine needs to see the fake game's exit (the 3 s of
+        play ran out once in a full suite run beside another); the next test sets it short for the other side."""
+        with patch("emerald_multiplayer.launcher_session.LINK_CLOSE_WAIT_SECONDS", 30.0):
+            async with self.playing_worker() as (session, task, worker):
+                self.disconnect_bridge(session)
+                await wait_until(lambda: session._save_failed)
+                self.assertTrue(session._idle_save_disconnect)
+                self.assertFalse(session.can_save)
+                await asyncio.sleep(.1)
+                self.assertNotEqual(session.status.code, "save_recovery_required")
+                self.exit_signal.write_text("0")
+                self.assertEqual(await task, "game_closed")
+                codes = []
+                while not worker.events.empty():
+                    codes.append(worker.events.get_nowait().code)
+                # neither the recovery warning nor "connection lost" while the game closed normally
+                self.assertNotIn("save_recovery_required", codes)
+                self.assertNotIn("connection_lost", codes)
 
     async def test_an_idle_link_end_while_the_game_runs_on_is_shown_after_a_moment(self):
         """MS-259's wait is short: a game whose link ended but which still runs is told saving stopped."""

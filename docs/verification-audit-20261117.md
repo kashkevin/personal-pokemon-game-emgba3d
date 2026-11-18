@@ -92,7 +92,7 @@ below).
 | MS-254 | After Save now the session window kept saying "Saving..." until another row was chosen, hiding "saved" and the disk-full texts | The answer to a chosen row stands until the session's status moves on | Unit tests (fail without it); **real launchers: Save now with the player's disk full - "Saving your character to the host...", then at once "This PC could not store the save (its disk may be full), so it was not sent..."; with room again "Character saved to the host"**, no other row chosen |
 | MS-255 | A 5-10 s network stall at a save's start: the link survived, the save failed into recovery ("Saving stopped: restart game") | A save waits 15 s for each answer (more than the 10 s stall the link survives, less than its 20 s dead-host limit) | Unit test; **real launchers: an 8 s stall as the friend's save began: saved, the same connection** |
 | MS-256 | Game banners lost their ";" (the game's text has none); a 32-character PLAYERS notice lost its last letter | ":" for ";", a shorter notice | Unit tests; **real games: "Trade cancelled: no change. / Code: TimeoutError" in the friend's game (pictured)** |
-| MS-257 | Any program on a world's port: "Close the running host", shown in the menu only as "could not finish" | Its own reason, which reaches the menu | Unit test; **real launcher: another program on 7777 as the host entered - "This world's port is already in use on this PC..." (pictured), then registered and saved once it closed** |
+| MS-257 | Any program on a world's port: "Close the running host", shown in the menu only as "could not finish" | Its own reason, which reaches the menu | Unit test; **real launcher: another program on 7777 as the host entered - "This world's port is already in use on this PC..." (pictured), then registered and saved once it closed**. Windows (2026-11-18, `installed-world-check` run [46](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44331036119)): that refusal passed; the hosting session's, when the world is played again, said only "The game could not open" - fixed (`launcher_session.port_taken`; L passed) |
 | NU-1 (gap) | A setup game ended just after reaching the field (the host's allocation receipt written): every later setup of that place refused for good | Such an attempt - also another character's at the same place - is set aside when the host holds nothing of it; kept, never deleted | Unit tests (fail without it); **real launchers: setup games killed 0.0, 0.4 and 1.0 s after reaching the field, then a second character's 6.7 s in: each next setup went ahead (the one killed 1.0 s in held the host's allocation receipt: set aside with it), then registered and saved** |
 | NU-3 (gaps) | A replaced invite code: "did not answer in time"; another world's code: "certificate expired" | The host's refusal reported at once in Join Friend's words; another world's certificate is "not the world from your invite" | Unit tests (fail without them); **real launchers: both messages right, the other cases unchanged** |
 | MS-258 | Tower Duo: a second press after Accept opened the team page and a third took the first Pokemon out (the Duo battle fought with 2 of 3); a second press after Ready undid it | A Duo page whose state or own readiness changed is a new page: the game starts it on its first row (a name, no action) | Unit test (fails without it); **real games: every extra press on the first row, the team three, both ready, the Duo battle** |
@@ -159,13 +159,16 @@ on Windows (runs 479 and 482; KNOWN_ISSUES MS-83's update).
 
 * **MS-51's exact sequence** - closing before a save cannot be produced by play (the launcher saves first).
 * **G1, MS-10** - the trade-effect path is not in the package.
-* **Windows**: none of this audit's runs were on Windows. Its fixes (MS-254 to MS-258, NU-1's and NU-3's gaps) went
+* **Windows**: the audit's own rechecks ran on Linux. Its fixes (MS-254 to MS-258, NU-1's and NU-3's gaps) went
   into the full `windows-package` run [482](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44230553383)
   (W, 2026-11-18: all 93 jobs passed - each fix's unit tests in the app's tests on Windows, saving and joining in the
-  installation check; the rechecks themselves stay L only); MS-260's goes into the next full run; MS-259's fix ran in
-  the installed launcher on Windows (`installed-world-check`: 7 of 26 normal closes with a false
-  warning with CI-482, 0 of 44 with CI-486; KNOWN_ISSUES MS-259's update) and MS-216's cleanup kept the newest
-  40 save copies there after 45 saves (run 40; MS-216's update); the owner's checklist covers the real PCs (PC).
+  installation check). Rechecked on Windows since: MS-258's (the Tower proof's `--duo-presses`, run
+  [496](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44322657655): passed); MS-257's (`installed-world-check`
+  run [46](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44331036119): the first entry's refusal passed, the hosting session's was
+  missing - fixed, L passed, its W the next full run's); MS-259's (`installed-world-check`: 7 of 26 normal closes with
+  a false warning with CI-482, 0 of 44 with CI-486); MS-216's cleanup (the newest 40 save copies kept after 45 saves,
+  run 40). MS-260's fix went into run [486](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44282182983)
+  (all 93 jobs passed; CI-486). The owner's checklist covers the real PCs (PC).
 
 ## Where the evidence is
 

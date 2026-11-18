@@ -121,6 +121,33 @@ class SaveCopiesTests(unittest.TestCase):
         self.assertEqual(account.kept(), list(range(11, 51)))   # at start-up 6-45, then after the game 11-50
 
 
+class PortTakenTests(unittest.TestCase):
+    def test_a_world_whose_port_another_program_holds_says_so_and_records_the_reason(self):
+        # KNOWN_ISSUES MS-257 (installed-world-check run 46, Windows): the host's Play said only "The game could not
+        # open... Reason: OSError".
+        world = World(self)
+        driver = Driver(("main", select("solo")), ("confirm", select("yes")), ("create_character", select("go")),
+                        ("solo", select("new")), ("ask_text", select("ok", value="My world")),
+                        ("bring_character", select("go")), main_exit())
+        app, _ = world.app(driver, worker=FakeWorker(lambda request: "game_closed"), drafter=fake_drafter([]),
+                           register=fake_register([]))
+        app.run()
+        self.assertTrue(driver.done(), driver.steps)
+        cause = "OSError: [Errno 98] error while attempting to bind on address ('127.0.0.1', 7777): address already in use"
+        seen = {}
+        driver = Driver(("main", select("continue")), ("main", lambda s: seen.update(status=s.status) or select("exit")))
+        app2, _ = world.app(driver, worker=FakeWorker(lambda request: ("port_in_use", "OSError", cause)))
+        app2.run()
+        self.assertTrue(driver.done(), driver.steps)
+        kind, text = seen["status"]
+        self.assertEqual(kind, "error")
+        self.assertIn("This world's port is already in use on this PC: close the running host, or the other program", text)
+        self.assertNotIn("could not open", text)
+        report = (world.private / "shell" / "last-error.txt").read_text(encoding="utf-8")
+        self.assertIn("session ended: port_in_use", report)
+        self.assertIn(cause, report)
+
+
 class CharacterTests(unittest.TestCase):
     def test_a_first_time_player_creates_one_character_and_plays_solo_with_no_second_new_game(self):
         world = World(self)

@@ -4108,7 +4108,7 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/copies-check" --label copies --save-copies 45
-      - name: The world's port taken by another program as the character first enters (full; KNOWN_ISSUES MS-257)
+      - name: The world's port taken by another program as the character first enters, then as the world is played (full; KNOWN_ISSUES MS-257)
         if: env.MODE == 'full'
         # scripts/windows-runtime/ci_play_check.py --port-taken: one player; a character and a hosted world, then a plain
         # socket of the check's listens on the world's address and port: the first entry must stop with "This world's port
