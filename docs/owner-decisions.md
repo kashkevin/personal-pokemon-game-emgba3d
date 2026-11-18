@@ -180,6 +180,11 @@ was changed; each row has the options and a recommendation. Purely visual in eve
 or multiplayer data is touched). The private sprite pack is not in the cloud, so #75-#77 cannot be looked at
 there with the real art; any change would need the owner's eyes on a PC with the pack.
 
+**All four resolved on 2026-11-17** by the owner's instruction (investigate and resolve them with the original
+Emerald as the reference, using best engineering judgment): each row's last cell says how - #75 and #78 kept as the
+original draws them, #76 and #77 done (engine `98c795d2`). The real pack's look on the owner's PC:
+`docs/windows-test-20261117.md`, section 8.
+
 | # | Decision | Why it is open | Options | Recommendation |
 | --- | --- | --- | --- | --- |
 | 75 | **A tall Pokemon's head behind the foe's lower databox in doubles (KNOWN_ISSUES S2)** | The library sprites are 7-9 % taller than the GBA pictures on average and much more for the big ones (S1: drawn one pixel to one GBA pixel, never resampled). In a double battle the player's left Pokemon stands at (32, 80), its 64-pixel box from row 48 down; the foe's right databox sits at (32, 44), rows 28-60. A tall Pokemon there (Gardevoir, the wild2 reproduction) passes its head behind that box, which stays in front, as the GBA layers them. | **(a)** keep it (the GBA's own order: the databoxes always readable); **(b)** draw the player's Pokemon over the foe's databoxes (the head whole; part of the foe's HP bar hidden while it overlaps); **(c)** move the foe's lower databox in doubles on the PC (a HUD layout change: up into the gap over it, or to the right of the foe's left box) - both HUDs, the GBA's healthboxes (PC-only coordinates) and the native HUD's databoxes; **(d)** shrink only the tall library sprites in doubles until the head clears the box (resampled pixel art, the S1 grid broken for them) | **(c)** if the overlap bothers you in play (the HUD keeps everything readable and the Pokemon stays whole), else **(a)**; not (d) **Resolved 2026-11-17 - kept, the original's layering** (your instruction: the original Emerald as the reference): in the original's own art 73 of 332 back sprites, Gardevoir among them, already reach under that healthbox, which the original keeps in front; the pack only deepens it a little (KNOWN_ISSUES S2). Nothing changed. |
