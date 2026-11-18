@@ -77,6 +77,34 @@ class CompareTests(unittest.TestCase):
         merged = ui_audit.merge([{"a": {"times": 1, "frames": 2, "logs": 1}}, {"a": {"times": 2, "frames": 3, "logs": 1}}])
         self.assertEqual(merged, {"a": {"times": 3, "frames": 5, "logs": 2}})
 
+    def test_a_state_a_fix_took_away_fails_when_it_is_back_even_with_no_screen(self):
+        apprentice = "window 0: 27x4 at 2,15 window 1: 4x4 at 21,9"
+        with tempfile.TemporaryDirectory() as tmp:
+            # the baseline, from before the fix, still holds the state; it names no screen
+            base = write(tmp, "base.json", json.dumps({apprentice: {"times": 2, "frames": 1638, "logs": 1}}))
+            fixed = write(tmp, "fixed.json", json.dumps({apprentice: "MS-246"}))
+            shard = write(tmp, "shard.json", json.dumps({apprentice: {"times": 1, "frames": 300, "logs": 1}}))
+            report = os.path.join(tmp, "report.json")
+            self.assertEqual(ui_audit.main(["compare", "--baseline", base, shard]), 0)
+            code = ui_audit.main(["compare", "--baseline", base, "--fixed", fixed, "--out", report, shard])
+            with open(report) as data:
+                result = json.load(data)
+        self.assertEqual(code, 1)
+        self.assertEqual(result["fixed_back"], {apprentice: {"times": 1, "frames": 300, "logs": 1, "fix": "MS-246"}})
+
+    def test_the_fixed_states_absent_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = write(tmp, "base.json", json.dumps({"window 0: 27x4 at 2,15 window 1: 4x4 at 21,9":
+                                                       {"times": 2, "frames": 1638, "logs": 1}}))
+            fixed = write(tmp, "fixed.json", json.dumps({"window 0: 27x4 at 2,15 window 1: 4x4 at 21,9": "MS-246"}))
+            shard = write(tmp, "shard.json", json.dumps({"window 0: 27x4 at 2,15": {"times": 3, "frames": 90, "logs": 1}}))
+            report = os.path.join(tmp, "report.json")
+            code = ui_audit.main(["compare", "--baseline", base, "--fixed", fixed, "--out", report, shard])
+            with open(report) as data:
+                result = json.load(data)
+        self.assertEqual(code, 0)
+        self.assertEqual((result["fixed_states"], result["fixed_back"]), (1, {}))
+
 
 if __name__ == "__main__":
     unittest.main()

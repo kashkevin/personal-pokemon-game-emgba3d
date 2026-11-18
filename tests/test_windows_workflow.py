@@ -5,6 +5,7 @@ from silently disappearing (game facts in the bundle, the installer build, the p
 the installation check on a fresh runner, no game data in any upload)."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 import unittest
@@ -590,6 +591,11 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("contains(format(',{0},', inputs.only), ',gameplay-check-3d,')", report)
         self.assertIn("pattern: gameplay-windows-3d-shard-*", report)
         self.assertIn("merge_gameplay_shards.py --shards shards --expected 8", report)
+        # a state a fix took away fails the comparison when it is back (KNOWN_ISSUES MS-246: the baseline holds it)
+        self.assertIn("--fixed docs/qa/ui-audit-fixed.json --out ui_audit_report.json", report)
+        fixed = json.loads((ROOT / "docs" / "qa" / "ui-audit-fixed.json").read_text(encoding="utf-8"))
+        baseline = json.loads((ROOT / "docs" / "qa" / "ui-audit-baseline.json").read_text(encoding="utf-8"))
+        self.assertTrue(fixed and all(state in baseline for state in fixed))
 
     def test_giving_up_a_battle_between_players_runs_on_windows(self):
         # KNOWN_ISSUES MS-126: the give-up from the waiting screen, with the other player away and once the master has

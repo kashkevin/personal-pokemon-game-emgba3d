@@ -1,0 +1,4 @@
+{
+ "window 0: 27x4 at 2,15 window 1: 4x4 at 21,9": "KNOWN_ISSUES MS-246: the Battle Tower Apprentice's YES/NO box in the game's own window (engine 6608cef3)",
+ "window 0: 27x4 at 2,15 window 1: 9x4 at 19,9": "KNOWN_ISSUES MS-246: the Battle Tower Apprentice's list in the game's own window (engine 6608cef3)"
+}

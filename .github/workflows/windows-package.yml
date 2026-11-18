@@ -1944,8 +1944,10 @@ jobs:
           # The shards' audits (each "the native interface's audit over this shard's walk") set together against the
           # Linux 3D test build's walk of the same plan (docs/qa/ui-audit-baseline.json, scripts/qa/ui_audit.py): it
           # fails when a screen of the game's own showed with no native screen over it for 20 frames or more here and
-          # never there - a screen the native interface leaves uncovered in the Windows build alone. The other states
-          # are reported. No shard's audit (an engine before the audit's reference line) or no baseline in this app:
+          # never there - a screen the native interface leaves uncovered in the Windows build alone - and when a state
+          # a fix took away is back (docs/qa/ui-audit-fixed.json: the baseline, walked before the fix, still holds it,
+          # and a state of the field's own windows names no screen; KNOWN_ISSUES MS-246). The other states are
+          # reported. No shard's audit (an engine before the audit's reference line) or no baseline in this app:
           # noted, not failed.
           files=$(find shards -name ui_audit.json | sort)
           if [ -z "$files" ]; then
@@ -1959,8 +1961,8 @@ jobs:
             exit 0
           fi
           code=0
-          python3 scripts/qa/ui_audit.py compare --baseline docs/qa/ui-audit-baseline.json --out ui_audit_report.json \
-            $files > ui_audit.txt || code=$?
+          python3 scripts/qa/ui_audit.py compare --baseline docs/qa/ui-audit-baseline.json \
+            --fixed docs/qa/ui-audit-fixed.json --out ui_audit_report.json $files > ui_audit.txt || code=$?
           cat ui_audit.txt
           { echo "- The native interface's audit over the whole walk (MS-105):"; echo '```'; cat ui_audit.txt; echo '```'; } \
             >> "$GITHUB_STEP_SUMMARY"

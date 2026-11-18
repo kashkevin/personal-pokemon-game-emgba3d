@@ -10,9 +10,11 @@ main callback) and the field script last started - and once "Native UI audit: on
         the states of the logs, each with how many times and how many frames it lasted and in how many logs, those
         shorter than FRAMES (default 20) left out (a screen's loading frames); addresses named from TABLE (`nm -n` of
         the same build), moved by the log's CB2_Overworld against the table's (a program Windows loaded elsewhere)
-    ui_audit.py compare --baseline STATES.json [--out REPORT.json] STATES.json...
+    ui_audit.py compare --baseline STATES.json [--fixed FIXED.json] [--out REPORT.json] STATES.json...
         the walk's states (one file or several shards') against another build's: the game's own screens - a "screen"
-        name - that showed uncovered here and never there fail it (exit 1); the rest is reported.
+        name - that showed uncovered here and never there fail it (exit 1); the rest is reported. FIXED names states
+        a fix took away ({state: the fix}) - the baseline may still hold them, from before the fix, and a state with
+        no "screen" never fails the comparison by itself: any of them here fails it too.
 """
 from __future__ import annotations
 
@@ -113,12 +115,15 @@ def merge(parts):
     return merged
 
 
-def compare(states, baseline):
+def compare(states, baseline, fixed=None):
     here, there = screens(states), screens(baseline)
     new_screens = sorted(here - there)
     new_states = sorted(key for key in states if key not in baseline)
+    fixed = fixed or {}
+    back = {key: {**states[key], "fix": fixed[key]} for key in sorted(fixed) if key in states}
     return {"screens": sorted(here), "baseline_screens": sorted(there), "new_screens": new_screens,
-            "new_states": new_states, "states": len(states), "baseline_states": len(baseline)}
+            "new_states": new_states, "states": len(states), "baseline_states": len(baseline),
+            "fixed_states": len(fixed), "fixed_back": back}
 
 
 def main(argv=None):
@@ -131,6 +136,7 @@ def main(argv=None):
     one.add_argument("logs", nargs="*")
     two = sub.add_parser("compare")
     two.add_argument("--baseline", required=True)
+    two.add_argument("--fixed")
     two.add_argument("--out")
     two.add_argument("states", nargs="+")
     args = parser.parse_args(argv)
@@ -149,7 +155,11 @@ def main(argv=None):
             parts.append(json.load(part))
     with open(args.baseline) as base:
         baseline = json.load(base)
-    report = compare(merge(parts), baseline)
+    fixed = None
+    if args.fixed:
+        with open(args.fixed) as data:
+            fixed = json.load(data)
+    report = compare(merge(parts), baseline, fixed)
     if args.out:
         with open(args.out, "w") as out:
             json.dump(report, out, indent=1)
@@ -157,7 +167,12 @@ def main(argv=None):
           f"the baseline; {len(report['new_states'])} of {report['states']} states not in the baseline")
     for screen in report["new_screens"]:
         print(f"  NEW SCREEN uncovered here, never in the baseline: {screen}")
-    return 1 if report["new_screens"] else 0
+    if fixed is not None:
+        back = len(report["fixed_back"])
+        print(f"states a fix took away: {report['fixed_states']}, {back if back else 'none'} of them here")
+    for key, value in report["fixed_back"].items():
+        print(f"  UNCOVERED AGAIN ({value['fix']}): {value['times']} times, {value['frames']} frames | {key}")
+    return 1 if report["new_screens"] or report["fixed_back"] else 0
 
 
 if __name__ == "__main__":
