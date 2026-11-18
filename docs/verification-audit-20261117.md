@@ -162,8 +162,9 @@ on Windows (runs 479 and 482; KNOWN_ISSUES MS-83's update).
 * **Windows**: none of this audit's runs were on Windows. Its fixes (MS-254 to MS-258, NU-1's and NU-3's gaps) went
   into the full `windows-package` run [482](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44230553383)
   (W, 2026-11-18: all 93 jobs passed - each fix's unit tests in the app's tests on Windows, saving and joining in the
-  installation check; the rechecks themselves stay L only); MS-260's goes into the next full run; the owner's checklist
-  covers the real PCs (PC).
+  installation check; the rechecks themselves stay L only); MS-260's goes into the next full run; MS-259's fix ran in
+  the installed launcher on Windows (`installed-world-check`: 7 of 26 normal closes with a false
+  warning with CI-482, 0 of 17 with CI-486; KNOWN_ISSUES MS-259's update); the owner's checklist covers the real PCs (PC).
 
 ## Where the evidence is
 
