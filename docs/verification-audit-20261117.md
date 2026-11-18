@@ -164,7 +164,7 @@ on Windows (runs 479 and 482; KNOWN_ISSUES MS-83's update).
   (W, 2026-11-18: all 93 jobs passed - each fix's unit tests in the app's tests on Windows, saving and joining in the
   installation check; the rechecks themselves stay L only); MS-260's goes into the next full run; MS-259's fix ran in
   the installed launcher on Windows (`installed-world-check`: 7 of 26 normal closes with a false
-  warning with CI-482, 0 of 35 with CI-486; KNOWN_ISSUES MS-259's update) and MS-216's cleanup kept the newest
+  warning with CI-482, 0 of 44 with CI-486; KNOWN_ISSUES MS-259's update) and MS-216's cleanup kept the newest
   40 save copies there after 45 saves (run 40; MS-216's update); the owner's checklist covers the real PCs (PC).
 
 ## Where the evidence is
