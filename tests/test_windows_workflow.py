@@ -63,6 +63,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('--setup "$earlier" --other-setup "$this"', check)
         # KNOWN_ISSUES MS-257: the world's port taken by another program as the character first enters
         self.assertIn("--label port --port-taken", check)
+        # KNOWN_ISSUES MS-258: the Tower Duo's pages with double and triple presses, in Windows game processes
+        self.assertIn('{name: duo-presses, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 '
+                      '--duo-presses"}', WORKFLOW)
         script = (ROOT / "scripts/windows-runtime/ci_installer_check.py").read_text(encoding="utf-8")
         for switch in ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/DIR=", "LOCALAPPDATA"):
             self.assertIn(switch, script)

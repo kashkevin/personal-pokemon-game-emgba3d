@@ -955,6 +955,9 @@ jobs:
           - {name: solo, scenario: solo, a: tower-strong-a, b: tower-weak25-b, extra: "--weak-b --party-counts 6 1"}
           - {name: milestone, scenario: solo, a: tower-strong25-a, b: tower-weak-b, extra: "--weak-b --party-counts 6 1 --floors 26"}
           - {name: duo, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6"}
+          # KNOWN_ISSUES MS-69's Tower Duo pages and MS-258: the same Duo with every choice pressed two and three times (A
+          # again at once and when the next page shows): nothing cancelled or declined, nobody taken out of the team
+          - {name: duo-presses, scenario: duo, a: tower-strong-a, b: tower-strong-b, extra: "--party-counts 6 6 --duo-presses"}
           - {name: join, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6"}
           - {name: join-reset, scenario: join, a: tower-join-a, b: tower-join-b, extra: "--party-counts 3 6 --rejoin reset"}
           - {name: mega, scenario: mega, a: tower-mega-a, b: tower-mega-b, extra: "--party-counts 6 6 --floors-json mega-check-inputs/tower_legends.json"}
