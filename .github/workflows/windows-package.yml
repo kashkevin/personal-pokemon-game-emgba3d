@@ -4110,10 +4110,12 @@ jobs:
             --work "$RUNNER_TEMP/copies-check" --label copies --save-copies 45
       - name: The world's port taken by another program as the character first enters, then as the world is played (full; KNOWN_ISSUES MS-257)
         if: env.MODE == 'full'
-        # scripts/windows-runtime/ci_play_check.py --port-taken: one player; a character and a hosted world, then a plain
-        # socket of the check's listens on the world's address and port: the first entry must stop with "This world's port
-        # is already in use on this PC..." (not "Close the running host", not "could not finish"); once it has closed, the
-        # same entry registers the character, plays and saves; Exit 0.
+        # scripts/windows-runtime/ci_play_check.py --port-taken: one player; a character and a hosted world. A: a plain
+        # socket of the check's listens on 127.0.0.1 and the world's port (where the host's character setup listens): the
+        # first entry must stop with "This world's port is already in use on this PC..." (not "Close the running host",
+        # not "could not finish"); once it has closed, the same entry registers the character, plays and saves. B: the
+        # socket on the world's own address and port as the host plays the world again: the same words (not "The game
+        # could not open"), no game opens; then the world plays on and saves; Exit 0.
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/port-check" --label port --port-taken

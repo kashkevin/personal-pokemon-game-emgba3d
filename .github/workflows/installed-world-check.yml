@@ -186,7 +186,8 @@ jobs:
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/play-check/copies" --label copies --save-copies 45
       - name: "The world's port taken by another program as the character first enters, then as the world is played (run ${{ env.NEW_RUN }}; KNOWN_ISSUES MS-257)"
-        # one player: the first entry must stop with the port's own reason; once the port is free the same entry plays
+        # one player: the first entry (A) and a later Play of the world (B) must each stop with the port's own reason, no
+        # game opening at B; once the port is free the same entry plays, and the world plays on
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/play-check/port" --label port --port-taken
