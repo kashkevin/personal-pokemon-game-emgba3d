@@ -152,11 +152,13 @@ jobs:
             if [ "$attempt" = 2 ]; then
               # Run 420 (2026-11-10): the runner's own mirror gave 66 of these 230 MB in three tries of ten minutes
               # (a minute's download on other days): the last two tries fetch from Ubuntu's own archive (what apt
-              # already has, it keeps)
+              # already has, it keeps). Run 486 (2026-11-18): the runner's mirror is now a regional one on EC2
+              # (us-east-2.ec2.archive.ubuntu.com) and stalled every try; any regional mirror is replaced, not only
+              # Azure's
               cat /etc/apt/apt-mirrors.txt >&2 || true
               for sources in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
                 [ -f "$sources" ] || continue
-                sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
+                sudo sed -i -E 's#http://[a-z0-9.-]+\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$sources"
               done
               timeout 300 sudo apt-get update -qq || echo "apt-get update from Ubuntu's archive failed: on" >&2
             fi
@@ -3471,7 +3473,7 @@ jobs:
               # its 230 MB in three tries of ten minutes: the last two tries fetch from Ubuntu's own archive again
               for sources in /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
                 [ -f "$sources" ] || continue
-                sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
+                sed -i -E 's#http://[a-z0-9.-]+\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$sources"
               done
               timeout 300 apt-get update -qq || echo "apt-get update from Ubuntu's archive failed: on" >&2
             fi

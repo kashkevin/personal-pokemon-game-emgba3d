@@ -31,7 +31,7 @@ jobs:
               if [ "$attempt" = 3 ]; then
                 for sources in /etc/apt/apt-mirrors.txt /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list; do
                   [ -f "$sources" ] || continue
-                  sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' "$sources"
+                  sudo sed -i -E 's#http://[a-z0-9.-]+\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' "$sources"
                 done
               fi
               timeout 300 sudo apt-get update -qq || echo "apt-get update failed (attempt $attempt): on" >&2

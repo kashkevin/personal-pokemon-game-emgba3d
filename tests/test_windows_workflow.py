@@ -482,7 +482,8 @@ class WindowsWorkflowTests(unittest.TestCase):
             with self.subTest(job=name, fallback="archive"):
                 steps = job(name)
                 self.assertIn('[ "$attempt" = 4 ] && { echo "apt-get install --download-only failed four times"', steps)
-                fallback = steps.index("s|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g")
+                # run 486: any regional mirror (Azure's or EC2's) is replaced
+                fallback = steps.index("s#http://[a-z0-9.-]+\\.archive\\.ubuntu\\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g")
                 self.assertLess(steps.index("--download-only"), fallback)
                 self.assertLess(fallback, steps.index("--no-download"))
 
