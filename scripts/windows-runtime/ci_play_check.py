@@ -529,6 +529,9 @@ class PlayCheck:
         self.pictures = work / f"{label}-pictures"
         self.pictures.mkdir(exist_ok=True)
         self.count = 0
+        # KNOWN_ISSUES MS-259: whether a false warning at a normal close fails the check (off while an earlier
+        # installer's launcher, from before the fix, plays: recorded only)
+        self.strict_close = True
 
     def log(self, text):
         print(text, flush=True)
@@ -667,10 +670,53 @@ class PlayCheck:
         self.close(player, game)
         return None, result
 
-    def close(self, player, game):
+    def close(self, player, game, *, normal=True):
+        """Close the game's window as a player does. ``normal``: nothing has gone wrong in the game's world (not a friend's
+        game after its host left), so the menu must not warn of a lost connection or a save to recover meanwhile."""
+        mark = len(player.screens())
         player.desk.close_game(game[0], game[1])
         require(wait(lambda: not player.desk.alive(game[0]), 60), f"{player.name}: the game did not close")
         player.log("closed the game window")
+        if normal:
+            self.watch_close(player, mark)
+
+    # KNOWN_ISSUES MS-259: at a normal close right after a save the menu showed "This save needs recovery..." or
+    # "Connection to the host was lost..." for a moment before "Game closed" (the game's link ends a moment before its
+    # exit is seen); fixed in the app (707a651, 2026-11-18).
+    FALSE_CLOSE_WARNINGS = ("needs recovery", "Connection to the host was lost")
+
+    def watch_close(self, player, mark):
+        """Every status the menu showed from the close until it left the game's session screen, read from its screen log (a
+        status of a fraction of a second is caught). A false warning is recorded in the report's ``closes``; ``main`` fails
+        the check on one unless ``strict_close`` was off for it (an update's earlier installer, --close-warnings record)."""
+        wait(lambda: (player.current() or {}).get("id") not in ("session", None), 30, step=0.25)
+        time.sleep(1.5)                            # the screens the menu logs as it settles
+        shown = []
+        for screen in player.screens()[mark:]:
+            row = [screen["id"], screen["status"][1] if screen.get("status") else None]
+            if not shown or shown[-1] != row:
+                shown.append(row)
+        alarms = [row for row in shown if row[1] and any(text in row[1] for text in self.FALSE_CLOSE_WARNINGS)]
+        self.report.setdefault("closes", []).append(dict(player=player.name, strict=self.strict_close, alarms=alarms,
+                                                         statuses=shown[-8:]))
+        if alarms:
+            player.log("as the game closed normally the menu showed a false warning (KNOWN_ISSUES MS-259): "
+                       + " / ".join(row[1] for row in alarms)
+                       + ("" if self.strict_close else " - recorded, not failed (an installer from before the fix)"))
+        else:
+            player.log("as the game closed the menu showed: " + (" / ".join(row[1] for row in shown if row[1]) or "no status"))
+
+    def close_summary(self):
+        """The report's closes: how many were watched, and those with a false warning (strict ones fail the check)."""
+        closes = self.report.get("closes", [])
+        strict = [c for c in closes if c["alarms"] and c["strict"]]
+        earlier = [c for c in closes if c["alarms"] and not c["strict"]]
+        recorded = sum(1 for c in closes if not c["strict"])
+        self.log(f"normal closes watched: {len(closes)}; failing with a false warning: {len(strict)}"
+                 + (f"; recorded only (an installer from before the fix): {len(earlier)} of {recorded} with one"
+                    if recorded else ""))
+        require(not strict, "a normal close showed a false warning (KNOWN_ISSUES MS-259): "
+                + "; ".join(f"{c['player']}: {' / '.join(row[1] for row in c['alarms'])}" for c in strict))
 
     def solo(self, host):
         main = host.expect("main")
@@ -785,7 +831,7 @@ class PlayCheck:
                     for p in players.glob("*/pending-emergency.json")} if players.is_dir() else {}
         friend.log(f"recovery journals while the game is open: {journals or 'none'}")
         if friend.desk.alive(friend_game[0]):
-            self.close(friend, friend_game)
+            self.close(friend, friend_game, normal=False)
         after = friend.expect(("join_list", "message", "main"), 120)
         friend.log(f"after closing the game the menu shows {after['id']}: {after['status']} {after['notes'][:2]}")
         journals_after = {str(p.relative_to(friend.private)): json.loads(p.read_text(encoding="utf-8")).get("state")
@@ -1151,6 +1197,9 @@ def main():
     parser.add_argument("--stray-keys-at-close", action="store_true",
                         help="Linux: as each registration game closes by itself, A, B and Start land on the menu window "
                              "(KNOWN_ISSUES MS-15)")
+    parser.add_argument("--close-warnings", choices=("fail", "record"), default="fail",
+                        help="a false warning as a game closes normally (KNOWN_ISSUES MS-259): fail the check (the default) or "
+                             "only record it (an installer from before the fix, to compare)")
     parser.add_argument("--world-port", type=int, default=None,
                         help="Linux: new worlds start looking for a port here instead of 7777 (another program has 7777)")
     parser.add_argument("--linux-app", nargs=2, metavar=("INSTALLATION", "PROFILE"), help=argparse.SUPPRESS)
@@ -1198,13 +1247,18 @@ def main():
                 player.private.mkdir(parents=True, exist_ok=True)
                 seed_rule(player)
         if args.launcher_ended:
+            check.strict_close = args.close_warnings == "fail"
             report["launcher_ended"] = launcher_ended(check, host)
         else:
+            # An update's earlier installer may predate MS-259's fix: its launcher's closes are recorded, not failed
+            check.strict_close = args.close_warnings == "fail" and (args.linux or args.upgrade_to is None)
             world, slot = run(check, host, friend)
         if args.upgrade_to is not None and not args.launcher_ended:
             require(args.linux or args.upgrade_to.is_file(), f"no Setup file at {args.upgrade_to}")
+            check.strict_close = args.close_warnings == "fail"
             report["upgrade"] = upgrade(check, host, friend, None if args.linux else args.upgrade_to.resolve(), target, work,
                                         args.label, world, slot)
+        check.close_summary()
         report["result"] = "passed"
     except NotRun as reason:
         report["result"] = "not run: " + str(reason)

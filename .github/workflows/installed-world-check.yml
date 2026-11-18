@@ -7,7 +7,9 @@
 #      rename, delete and start hosting worlds; then
 #   3. the same on a completely fresh profile.
 #
-# A push of this file or the check runs step 1 only (a workflow_dispatch needs the file on the default branch).
+# A push of this file or the check runs step 1 only (a workflow_dispatch needs the file on the default branch). The build
+# that crashed is a workflow artifact, kept 7 days: once it is gone, step 1 (and step 2, which needs the data it leaves)
+# says so and does not run (every push run since 2026-11-07 failed at its download).
 # With installer_run_id the play-check job also plays that build (scripts/windows-runtime/ci_play_check.py): two profiles on one
 # runner create a character each through the game's New Game, the host plays Solo and hosts a world, the friend joins it with the
 # copied invite code, and every save reaches its world; then the friend joins again from the saved server, creates a second
@@ -22,8 +24,16 @@ on:
         description: "windows-package run (full) whose installer is checked; blank = only reproduce on the old one"
         default: ""
       old_installer_run_id:
-        description: "windows-package run of the build that crashed"
+        description: "windows-package run of the build that crashed ('none': leave its steps out; its installer is kept 7 days)"
         default: "39180878911"
+      close_warnings:
+        description: "play check: a false warning as a game closes normally (KNOWN_ISSUES MS-259) fails it, or is only recorded (an installer from before the fix)"
+        type: choice
+        options: [fail, record]
+        default: fail
+      rejoins:
+        description: "play check: how many times the friend joins again from the saved server (each a Save now and a normal close)"
+        default: "1"
   push:
     paths:
       - .github/workflows/installed-world-check.yml
@@ -55,6 +65,9 @@ jobs:
         with:
           python-version: "3.14"
       - name: The installer of the build that crashed
+        id: old
+        if: env.OLD_RUN != 'none'
+        continue-on-error: true        # a workflow artifact, kept 7 days: a later run finds it gone (step 1 then says so)
         uses: actions/download-artifact@v8
         with:
           name: EmeraldTogether-Windows-Installer
@@ -71,15 +84,21 @@ jobs:
           github-token: ${{ github.token }}
       - name: Installers
         run: |
-          sha256sum old-installer/*.exe
+          [ "${{ steps.old.outcome }}" != success ] || sha256sum old-installer/*.exe
           [ -z "$NEW_RUN" ] || sha256sum new-installer/*.exe
+      - name: "1. The build that crashed is not available: steps 1 and 2 not run"
+        if: steps.old.outcome != 'success'
+        run: |
+          echo "::notice::Steps 1 and 2 not run: the installer of run $OLD_RUN (the build that crashed) is not available (workflow artifacts are kept 7 days; 'none' leaves it out)"
+          echo "- **old**: not run: the installer of run $OLD_RUN is not available (kept 7 days)" >> "$GITHUB_STEP_SUMMARY"
       - name: "1. Reproduce on the build that crashed (run ${{ env.OLD_RUN }})"
+        if: steps.old.outcome == 'success'
         run: |
           python scripts/windows-runtime/ci_world_check.py --setup "$(ls old-installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/world-check" --profile "$RUNNER_TEMP/world-check/leftover-profile" \
             --expect crash --label old --delete-install
       - name: "2. The new build over the data the old one left (run ${{ env.NEW_RUN }})"
-        if: env.NEW_RUN != ''
+        if: env.NEW_RUN != '' && steps.old.outcome == 'success'
         run: |
           python scripts/windows-runtime/ci_world_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/world-check" --profile "$RUNNER_TEMP/world-check/leftover-profile" \
@@ -107,6 +126,7 @@ jobs:
           {
             echo "### Create World on the installed build"
             for f in "$RUNNER_TEMP"/world-check/*-world-check.json; do
+              [ -f "$f" ] || continue
               python -c "import json,sys;r=json.load(open(sys.argv[1]));print('- **'+r['label']+'** ('+r['setup']+', expect '+r['expect']+'): '+r['result']);[print('  - '+l) for l in r['log']]" "$f"
             done
           } >> "$GITHUB_STEP_SUMMARY"
@@ -144,9 +164,15 @@ jobs:
       - name: Installer
         run: sha256sum new-installer/*.exe
       - name: "Play the installed build (run ${{ env.NEW_RUN }}): a host and a friend on this runner"
+        # Every normal close's statuses are read from the menu's screen log (KNOWN_ISSUES MS-259): close_warnings 'record'
+        # keeps a false warning from failing the check, to compare an installer from before the fix.
+        env:
+          CLOSE_WARNINGS: ${{ inputs.close_warnings || 'fail' }}
+          REJOINS: ${{ inputs.rejoins || '1' }}
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
-            --work "$RUNNER_TEMP/play-check" --label play --rejoin 1 --second-character
+            --work "$RUNNER_TEMP/play-check" --label play --rejoin "$REJOINS" --second-character \
+            --close-warnings "$CLOSE_WARNINGS"
       - name: Upload the report, screen logs and pictures (7 days)
         if: always()
         uses: actions/upload-artifact@v7

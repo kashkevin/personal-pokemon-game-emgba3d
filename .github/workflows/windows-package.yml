@@ -4065,6 +4065,8 @@ jobs:
         if: env.MODE == 'full'
         # scripts/windows-runtime/ci_play_check.py: two profiles on this runner, both menus open; New Game, Solo, a hosted world
         # on this runner's network address and a friend joining it with the copied invite code, every save in its world.
+        # Every normal close's statuses are read from the menu's screen log: a false "needs recovery" or "Connection to the
+        # host was lost" fails it (KNOWN_ISSUES MS-259; the update step records its earlier installer's closes only).
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/play-check" --label play
