@@ -308,7 +308,7 @@ against the code, the tests and the Windows jobs on 2026-11-04. Nothing here cha
 
 Owner tests added to section 4 by this review: V21 (125-200% display scaling, two displays, exclusive fullscreen),
 V39 (the frame-rate targets on a graphics card), U30-5 (the menu with a controller), NU-10 (`--relay-server` from
-the packaged launcher opens its own console).
+the packaged launcher opens its own console; since 2026-11-18 the installed program runs as a relay on Windows in every full run's installation check - friends' traffic through it, W - leaving the console window itself and a relay across the Internet to a PC).
 
 ## 7. What KNOWN_ISSUES still leaves open, issue by issue (audit of 2026-11-05)
 
