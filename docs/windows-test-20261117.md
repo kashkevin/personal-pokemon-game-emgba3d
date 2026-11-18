@@ -11,7 +11,7 @@ run 479's build with the launcher fixes of the verification audit (`docs/verific
 prompts in each controller's own buttons (`docs/package-20261118b.md`). It is for your
 own PCs only; please do not pass it on. About 2-3 hours in all; tests 1-4 need one PC, tests 5-6 two.
 
-Known in CI-482, fixed for the next build (not new, no need to report): closing the game right after a save can
+Run 486 (the next build, with both fixes below) is running; it is named here if it passes. Known in CI-482, fixed for that build (not new, no need to report): closing the game right after a save can
 flash "This save needs recovery..." or "Connection to the host was lost..." in the launcher for a moment before
 "Game closed... saved (as of your last save)" - the save is in the world (KNOWN_ISSUES MS-259); and PokeNav > World
 can cut a long row mid-word (MS-260, Test E step 3).
