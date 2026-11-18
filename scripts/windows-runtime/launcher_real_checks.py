@@ -1230,10 +1230,54 @@ async def close_after_save(s):
         s.cleanup([host])
 
 
+async def close_after_save_joined(s):
+    """KNOWN_ISSUES MS-259 for a friend in a hosted world (the audit saw it there, dfh-fix-1): the host's world (This PC
+    only), the friend joined; then ``--cycles`` times the friend joins again through its saved server, CONTINUE, Save
+    now and the game closed as soon as the save is in the world (the play check's rejoin). Every status the friend's
+    menu showed is read from its screen log: no "This save needs recovery" and no "Connection to the host was lost" at
+    a normal close; each save in the host's world."""
+    host, friend = s.player("host"), s.player("friend")
+    try:
+        check = s.check
+        world, code, slot, host_game, friend_game = host_and_friend(s, host, friend)
+        check.close(friend, friend_game)
+        after = friend.expect(("join_list", "message", "main"), 120)
+        if after["id"] == "message":
+            friend.key("enter")
+        false_warnings = ("needs recovery", "Connection to the host was lost")
+        cycles = []
+        for n in range(s.args.cycles):
+            head = cp.revision(world, slot)
+            mark = len(friend.screens())
+            result = check.rejoin(friend, world, slot)
+            friend.expect(("join_list", "message", "main"), 120)
+            time.sleep(1.5)
+            shown = statuses_since(friend, mark)
+            alarms = [row for row in shown if row[1] and any(text in row[1] for text in false_warnings)]
+            saved = cp.revision(world, slot)
+            cycles.append(dict(n=n + 1, head=[head, saved], alarms=alarms))
+            s.record("cycle", n=n + 1, head=[head, saved], result=result, alarms=alarms, shown=shown[-6:])
+            current = friend.current()
+            if current and current["id"] == "message":
+                friend.key("enter")
+        s.record("cycles", count=len(cycles), heads=[c["head"] for c in cycles],
+                 with_a_false_warning=[c["n"] for c in cycles if c["alarms"]])
+        check.close(host, host_game)
+        host.expect("host_list", 60)
+        for player in (friend, host):
+            check.finish(player)
+        require(all(c["head"][1] > c["head"][0] for c in cycles), f"a save did not reach the host's world: {cycles}")
+        require(not any(c["alarms"] for c in cycles),
+                "a normal close showed a false warning in cycle(s) " + ", ".join(str(c["n"]) for c in cycles if c["alarms"]))
+        s.report["result"] = "completed"
+    finally:
+        s.cleanup((host, friend))
+
+
 SCENARIOS = {"disk-full-player": disk_full_player, "disk-full-host": disk_full_host, "copies": copies,
              "registration": registration, "connection": connection, "registration-again": registration_again,
              "registration-fresh": registration_fresh, "p15": p15, "port-in-use": port_in_use,
-             "close-after-save": close_after_save}
+             "close-after-save": close_after_save, "close-after-save-joined": close_after_save_joined}
 
 
 def main():
