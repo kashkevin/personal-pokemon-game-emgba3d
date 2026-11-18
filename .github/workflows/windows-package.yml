@@ -4094,6 +4094,15 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/ended-check" --label ended --launcher-ended
+      - name: The installed program as a relay server (full; KNOWN_ISSUES NU-10)
+        if: env.MODE == 'full'
+        # scripts/windows-runtime/ci_relay_check.py: the installed EmeraldTogether.exe --relay-server (a windowed program that
+        # opens its own console) on a free port; a world's host side (the launcher's RelayHostAgent) holds a room on it, three
+        # friends join through it at once (64 KiB each there and back) and one sends 4 MiB; another key for the room and a
+        # room nobody holds are refused; the relay ends when ended.
+        run: |
+          python scripts/windows-runtime/ci_relay_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/relay-check" --label relay
       - name: The earlier installer for the update check (full, upgrade_from_run; private to this repository)
         if: env.MODE == 'full' && inputs.upgrade_from_run != ''
         uses: actions/download-artifact@v8
@@ -4130,6 +4139,8 @@ jobs:
             ${{ runner.temp }}/play-check/*-pictures/
             ${{ runner.temp }}/play-check/*.log
             ${{ runner.temp }}/unicode-check/*/*-play-check.json
+            ${{ runner.temp }}/relay-check/*-relay-check.json
+            ${{ runner.temp }}/relay-check/*-relay-output.txt
             ${{ runner.temp }}/unicode-check/*/*.log
             ${{ runner.temp }}/ended-check/*-play-check.json
             ${{ runner.temp }}/ended-check/*-screens.jsonl

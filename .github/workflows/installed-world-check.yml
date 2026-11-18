@@ -198,3 +198,49 @@ jobs:
       - name: Remove the profiles
         if: always()
         run: rm -rf "$RUNNER_TEMP/play-check"
+
+  relay-check:
+    name: The installed program as a relay server (KNOWN_ISSUES NU-10)
+    if: ${{ inputs.installer_run_id != '' && inputs.installer_run_id != null }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      NEW_RUN: ${{ inputs.installer_run_id || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            scripts/windows-runtime
+            src
+            tests
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: The installer to check
+        uses: actions/download-artifact@v8
+        with:
+          name: EmeraldTogether-Windows-Installer
+          path: new-installer
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - name: "EmeraldTogether.exe --relay-server (run ${{ env.NEW_RUN }}): a host's room, three friends, 4 MiB, refusals"
+        # scripts/windows-runtime/ci_relay_check.py: the installed program as a relay on a free port of this runner; the
+        # launcher's own relay code (RelayHostAgent, open_relay_connection) as the host side and the friends.
+        run: |
+          sha256sum new-installer/*.exe
+          python scripts/windows-runtime/ci_relay_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/relay-check" --label relay
+      - name: Upload the report (7 days)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EmeraldTogether-relay-check
+          path: |
+            ${{ runner.temp }}/relay-check/*-relay-check.json
+            ${{ runner.temp }}/relay-check/*-relay-output.txt
+            ${{ runner.temp }}/relay-check/*.log
+          retention-days: 7
+          if-no-files-found: warn

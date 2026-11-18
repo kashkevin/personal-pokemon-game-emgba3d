@@ -53,6 +53,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("runs-on: windows-2022", check)
         self.assertIn("scripts/windows-runtime/ci_installer_check.py", check)
         self.assertIn("--expect-shell", check)
+        # KNOWN_ISSUES NU-10: the installed program as a relay server, traffic through it
+        self.assertIn("scripts/windows-runtime/ci_relay_check.py --setup", check)
         script = (ROOT / "scripts/windows-runtime/ci_installer_check.py").read_text(encoding="utf-8")
         for switch in ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/DIR=", "LOCALAPPDATA"):
             self.assertIn(switch, script)
