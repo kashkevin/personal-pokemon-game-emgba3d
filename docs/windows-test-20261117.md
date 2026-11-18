@@ -131,9 +131,10 @@ it, such a pad worked only in the menu):
    a USB stick).
 2. PC 2: **Join Friend** > join a new one with an invite code > paste it > choose a character > join.
 3. Both: you see each other walk; **PLAYERS** lists the other. PC 2: in the launcher tick "Share my location with other
-   players", then walk into a town. PC 1: **START > POKENAV > World > Players and weather** names that town (for
-   example "LITTLEROOT", the whole "LITTLEROOT TOWN" on PC 2's own page there), never "Area" and two numbers
-   (KNOWN_ISSUES MS-5; checked on Linux 2026-11-18).
+   players", then walk into a town. PC 1: **START > POKENAV > World > Players and weather** names that town, never
+   "Area" and two numbers (KNOWN_ISSUES MS-5; checked on Linux 2026-11-18). In CI-482 a row is cut at 25
+   characters, so a long name and place can end mid-word ("Friend Fl - LITTLEROOT TO"): known (MS-260), fixed for
+   the next build, which keeps whole words ("LITTLEROOT"; the whole "LITTLEROOT TOWN" on PC 2's own page there).
 4. A trade (PLAYERS > the other > trade): the Pokemon arrive on both sides; both save; reopen: still traded.
 5. A battle (PLAYERS > the other > challenge): it runs to the end; both back on the field.
 6. A co-op battle (a Gym battle together, or the Tower Duo): in it choose **GIVE UP**: it first asks "Giving up ends
