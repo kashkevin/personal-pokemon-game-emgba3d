@@ -1355,6 +1355,91 @@ def version_mismatch_check(check, host, friend):
     return report
 
 
+def port_taken_check(check, host):
+    """--port-taken (KNOWN_ISSUES MS-257): one player as installed. A character, then a hosted world (its port free then);
+    another program then listens on the world's own address and port (a plain socket of this check's, as any program
+    holding the port) and the character enters the world for the first time: its setup must stop with the port's own
+    reason in the menu ("This world's port is already in use on this PC...") - not "Close the running host", not
+    "could not finish". Once that program has closed, the same entry registers the character, plays and saves; the
+    game closes normally; Exit 0, no error recorded."""
+    import socket
+    report = {}
+    host.start()
+    check.create_character(host)
+    main = host.expect("main")
+    host.choose(main, "host")
+    host.choose(host.expect("host_list"), "create")
+    form = host.expect("create_world")
+    host.key("backspace", 40)
+    host.text("CI Hosted World")
+    host.key("enter")                          # Your name
+    host.key("backspace", 30)
+    host.text("Host")
+    host.key("enter")                          # Port (kept)
+    host.key("enter")                          # the Network row
+    if check.loopback:
+        host.key("enter")                      # Network: This PC only
+        host.choose(host.expect("choose"), "127.0.0.1")
+        host.choose(host.expect("create_world"), "create")
+    else:
+        focusable = [item[1] for item in form["items"] if "d" not in item[3]]
+        host.key("down", focusable.index("create") - focusable.index("network"))
+        host.key("enter")                      # Create world
+    world = wait(lambda: host.world("CI Hosted World"), 120)
+    require(world, f"{host.name}: the hosted world was not created ({host.current() and host.current()['notes'][:2]})")
+    address, port = world["bind_address"], world["descriptor"]["port"]
+    host.log(f"Host World: created {world['name']} (listens on {address}:{port}); another program now listens there")
+    screen = host.expect("world", 60)
+    other = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        other.bind((address, port))
+        other.listen(1)
+        host.choose(screen, "host")
+        shown = host.expect(("bring_character", "graphics", "message", "host_list", "session"), 120)
+        if shown["id"] == "bring_character":       # the character's first visit: as a player does
+            host.choose(shown, "go")
+            shown = host.expect(("graphics", "message", "host_list", "session"), 120)
+        if shown["id"] == "graphics":              # this PC cannot run 3D: Classic 2D this time
+            host.graphics_choice()
+            shown = host.expect(("message", "host_list", "session"), 120)
+        words = " ".join([shown["title"], *shown["notes"], str(shown.get("status") or "")])
+        check.picture("port-in-use")
+        report["refusal"] = dict(screen=shown["id"], title=shown["title"], notes=shown["notes"][:6])
+        require(shown["id"] == "message" and "port is already in use" in words,
+                f"{host.name}: the menu did not give the port's reason: {shown['id']} {shown['title']} {shown['notes'][:4]}")
+        require("Close the running host before" not in words and "could not finish" not in words,
+                f"{host.name}: the menu gave the old or no reason: {shown['notes'][:4]}")
+        host.log(f"with another program on {address}:{port}, the first entry stopped: {shown['title']} - "
+                 + " / ".join(note for note in shown["notes"][:2] if note))
+        # the menu keeps the refused setup's reason in last-error.txt (its diagnosis); nothing else may be recorded
+        refused = host.error_text()
+        require(refused == "" or "port is already in use" in refused,
+                f"{host.name}: the refusal recorded another error: {refused[-1500:]}")
+        report["recorded"] = "the refusal's reason" if refused else "nothing"
+    finally:
+        other.close()
+    host.key("enter")                              # the message read; the program holding the port has closed
+    for _ in range(4):
+        current = host.current()
+        if current and current["id"] == "world":
+            break
+        if current and current["id"] == "host_list":
+            rows = [item for item in current["items"] if item[2] and "CI Hosted World" in item[2]]
+            host.choose(current, rows[0][1] if rows else current["items"][0][1])
+            continue
+        host.key("escape")
+        time.sleep(1.5)
+    host.choose(host.expect("world", 60), "host")
+    game, report["after"] = check.enter_and_play(host, world, 0, keep_open=True)
+    host.log("the other program closed: the same entry registered the character and saved")
+    check.close(host, game)
+    host.expect("host_list", 60)
+    check.finish(host)
+    require(host.error_text() == refused, f"{host.name}: an error was recorded after the refusal: {host.error_text()[-2000:]}")
+    check.log("no error was recorded but the refusal's own reason" if refused else "no error was recorded")
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--setup", type=Path)
@@ -1389,6 +1474,10 @@ def main():
                         help="one player: N Save nows in one game (more than 40), then the newest 40 copies kept after the "
                              "game closes, after Continue and at the next start (KNOWN_ISSUES MS-216); --linux takes one "
                              "--display")
+    parser.add_argument("--port-taken", action="store_true",
+                        help="one player: another program listens on a hosted world's port as the character first enters it; "
+                             "the setup must say so (KNOWN_ISSUES MS-257), then enter once it has closed; --linux takes one "
+                             "--display")
     parser.add_argument("--other-setup", metavar="SETUP",
                         help="the friend plays another EmeraldTogether version: this other run's Setup, installed on its own "
                              "(KNOWN_ISSUES MS-28); its Check and join must stop on different versions, nothing made; with "
@@ -1418,7 +1507,7 @@ def main():
     check = host = friend = None
     try:
         if args.linux:
-            displays = 1 if args.launcher_ended or args.save_copies else 2
+            displays = 1 if args.launcher_ended or args.save_copies or args.port_taken else 2
             require(args.game and args.rom and args.manifest and len(args.display) == displays,
                     f"--linux needs --game, --rom, --manifest and {'one --display' if displays == 1 else 'two --display'}")
             versions = ({work / "host-profile": "Linux rehearsal A", work / "friend-profile": "Linux rehearsal B"}
@@ -1451,7 +1540,7 @@ def main():
         report["hosted_on"] = "this PC only (--loopback)" if args.loopback else "this PC's local-network address"
         check.log(f"{report['platform']}: {'installed ' + args.setup.name + ' into ' + str(target) if not args.linux else 'Linux game'}")
         host = Player(check, "host", work / "host-profile")
-        friend = None if args.launcher_ended or args.save_copies else Player(check, "friend", work / "friend-profile",
+        friend = None if args.launcher_ended or args.save_copies or args.port_taken else Player(check, "friend", work / "friend-profile",
                                                                             desk=friend_desk)
         if args.other_setup:
             check.log("the friend's EmeraldTogether: " + (f"installed {report['other_setup']} into {other_target}" if not args.linux
@@ -1470,11 +1559,14 @@ def main():
         elif args.other_setup:
             check.strict_close = args.close_warnings == "fail"
             report["version_mismatch"] = version_mismatch_check(check, host, friend)
+        elif args.port_taken:
+            check.strict_close = args.close_warnings == "fail"
+            report["port_taken"] = port_taken_check(check, host)
         else:
             # An update's earlier installer may predate MS-259's fix: its launcher's closes are recorded, not failed
             check.strict_close = args.close_warnings == "fail" and (args.linux or args.upgrade_to is None)
             world, slot = run(check, host, friend)
-        if args.upgrade_to is not None and not args.launcher_ended and not args.save_copies and not args.other_setup:
+        if args.upgrade_to is not None and not (args.launcher_ended or args.save_copies or args.other_setup or args.port_taken):
             require(args.linux or args.upgrade_to.is_file(), f"no Setup file at {args.upgrade_to}")
             check.strict_close = args.close_warnings == "fail"
             report["upgrade"] = upgrade(check, host, friend, None if args.linux else args.upgrade_to.resolve(), target, work,

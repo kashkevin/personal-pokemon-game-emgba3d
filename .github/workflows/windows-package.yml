@@ -4105,6 +4105,15 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/copies-check" --label copies --save-copies 45
+      - name: The world's port taken by another program as the character first enters (full; KNOWN_ISSUES MS-257)
+        if: env.MODE == 'full'
+        # scripts/windows-runtime/ci_play_check.py --port-taken: one player; a character and a hosted world, then a plain
+        # socket of the check's listens on the world's address and port: the first entry must stop with "This world's port
+        # is already in use on this PC..." (not "Close the running host", not "could not finish"); once it has closed, the
+        # same entry registers the character, plays and saves; Exit 0.
+        run: |
+          python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/port-check" --label port --port-taken
       - name: The installed program as a relay server (full; KNOWN_ISSUES NU-10)
         if: env.MODE == 'full'
         # scripts/windows-runtime/ci_relay_check.py: the installed EmeraldTogether.exe --relay-server (a windowed program that
@@ -4167,6 +4176,9 @@ jobs:
             ${{ runner.temp }}/copies-check/*-play-check.json
             ${{ runner.temp }}/copies-check/*-screens.jsonl
             ${{ runner.temp }}/copies-check/*.log
+            ${{ runner.temp }}/port-check/*-play-check.json
+            ${{ runner.temp }}/port-check/*-screens.jsonl
+            ${{ runner.temp }}/port-check/*-pictures/
             ${{ runner.temp }}/relay-check/*-relay-check.json
             ${{ runner.temp }}/relay-check/*-relay-output.txt
             ${{ runner.temp }}/unicode-check/*/*.log

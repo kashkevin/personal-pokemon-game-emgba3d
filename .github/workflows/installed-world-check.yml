@@ -185,6 +185,11 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/play-check/copies" --label copies --save-copies 45
+      - name: "The world's port taken by another program as the character first enters (run ${{ env.NEW_RUN }}; KNOWN_ISSUES MS-257)"
+        # one player: the first entry must stop with the port's own reason; once the port is free the same entry plays
+        run: |
+          python scripts/windows-runtime/ci_play_check.py --setup "$(ls new-installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/play-check/port" --label port --port-taken
       - name: Upload the report, screen logs and pictures (7 days)
         if: always()
         uses: actions/upload-artifact@v7
@@ -197,6 +202,9 @@ jobs:
             ${{ runner.temp }}/play-check/*.log
             ${{ runner.temp }}/play-check/copies/*-play-check.json
             ${{ runner.temp }}/play-check/copies/*-screens.jsonl
+            ${{ runner.temp }}/play-check/port/*-play-check.json
+            ${{ runner.temp }}/play-check/port/*-screens.jsonl
+            ${{ runner.temp }}/play-check/port/*-pictures/
           retention-days: 7
           if-no-files-found: warn
       - name: Summary

@@ -61,6 +61,8 @@ class WindowsWorkflowTests(unittest.TestCase):
         # KNOWN_ISSUES MS-28: another version refused at Check and join, both ways (the update check's earlier installer)
         self.assertIn('--setup "$this" --other-setup "$earlier"', check)
         self.assertIn('--setup "$earlier" --other-setup "$this"', check)
+        # KNOWN_ISSUES MS-257: the world's port taken by another program as the character first enters
+        self.assertIn("--label port --port-taken", check)
         script = (ROOT / "scripts/windows-runtime/ci_installer_check.py").read_text(encoding="utf-8")
         for switch in ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/DIR=", "LOCALAPPDATA"):
             self.assertIn(switch, script)
