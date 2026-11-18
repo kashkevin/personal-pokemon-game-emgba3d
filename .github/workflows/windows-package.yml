@@ -2025,6 +2025,9 @@ jobs:
           # the 3D game's own menu names (MS-61: TOWER and RESET showed as "Exit" there)
           if (Test-Path inputs\pokeemerald-mp-diorama.exe) {
             $runs += @{ test = "start-menu"; exe = "inputs\pokeemerald-mp-diorama.exe"; name = "start-menu-3d" }
+            # the 3D game's own controller checks: an SDL controller through its event loop, and the prompts' buttons for
+            # a DualShock 4, a DualSense and a Switch Pro (KNOWN_ISSUES MS-252)
+            $runs += @{ test = "keybinds"; exe = "inputs\pokeemerald-mp-diorama.exe"; name = "keybinds-3d" }
           } else { $failed = @("start-menu-3d (no 3D game in the inputs)") }
           $logs = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP "selftests")
           if (-not $failed) { $failed = @() }

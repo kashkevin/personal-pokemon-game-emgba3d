@@ -6,7 +6,8 @@ machine without a graphics card, a controller or a second PC could do was done f
 has been tried on a real PC yet: each box is open until you tick it.
 
 The installer to test: **CI-479** (`EmeraldTogether-Setup-Native-3D-CI-479.exe`, engine `c7b0d80d`; run 479 of
-2026-11-17/18 - its result and the file's SHA-256 are filled in below once every job has finished). It is for your
+2026-11-17/18 - its result and the file's SHA-256 are filled in below once every job has finished), or the next run's
+if it replaces it (named here when it does). It is for your
 own PCs only; please do not pass it on. About 2-3 hours in all; tests 1-4 need one PC, tests 5-6 two.
 
 When something goes wrong: note the time and what you did, press **F12** in the game for a picture (saved in
@@ -96,7 +97,8 @@ it, such a pad worked only in the menu):
 6. Repeat 1-4. PlayStation: **Cross** = A, **Circle** and **Square** = B, **Triangle** = details, **Options** = Start,
    **Share/Create** = Select, **L1/R1** = L/R. Switch Pro: **A** (right) = A, **B** and **X** = B, **Y** = details,
    **+** = Start, **-** = Select.
-7. The on-screen button hints show the Xbox letters (A, X, Y) for every pad. Tell me if you want PlayStation symbols.
+7. The on-screen button hints in the 3D view show your controller's own buttons: a PlayStation pad's cross, square and
+   triangle, OPTIONS and SHARE (CREATE on a DualSense), L1/R1; a Switch Pro's A, B, +, -; an Xbox pad's letters.
 8. Only if that pad misbehaves: close EmeraldTogether, open `cmd` and type
    `set PKMN_SDL_CONTROLLERS=0`, Enter, then `"%LOCALAPPDATA%\Programs\EmeraldTogether\EmeraldTogether.exe"`, Enter. The
    game then ignores everything but an Xbox controller. Tell me what happened.
