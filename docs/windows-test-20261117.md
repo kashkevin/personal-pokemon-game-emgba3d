@@ -5,10 +5,10 @@ benchmark, two PCs on one network, two PCs over the Internet and a long session;
 machine without a graphics card, a controller or a second PC could do was done first (end of this page). Nothing here
 has been tried on a real PC yet: each box is open until you tick it.
 
-The installer to test: **CI-486** (`EmeraldTogether-Setup-Native-3D-CI-486.exe`, engine `25eb56eb`; run 486 of
-2026-11-18: **all 93 jobs passed**, the update from CI-482 with players' saves among them; its SHA-256 in step 0.4):
-run 482's build with two launcher fixes - no false warning when the game is closed right after a save (MS-259), and
-PokeNav > World's rows keep whole words (MS-260) (`docs/package-20261118c.md`). It is for your
+The installer to test: **CI-499** (`EmeraldTogether-Setup-Native-3D-CI-499.exe`, engine `25eb56eb`; run 499 of
+2026-11-18: **all 94 jobs passed**, the update from CI-486 with players' saves among them; its SHA-256 in step 0.4):
+run 486's build with one launcher fix - a world whose port another program holds says so when it is played, not
+"The game could not open" (MS-257) (`docs/package-20261118d.md`). It is for your
 own PCs only; please do not pass it on. About 2-3 hours in all; tests 1-4 need one PC, tests 5-6 two.
 
 When something goes wrong: note the time and what you did, press **F12** in the game for a picture (saved in
@@ -17,18 +17,18 @@ When something goes wrong: note the time and what you did, press **F12** in the 
 
 ## 0. Get the installer (5 minutes, once)
 
-1. Signed in to GitHub, open <https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44282182983>.
+1. Signed in to GitHub, open <https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44339381099>.
 2. Scroll to **Artifacts** and click **EmeraldTogether-Windows-Installer** (a zip of about 59 MB). GitHub keeps it 7
    days after the run (until about 2026-11-25).
 3. Right-click the zip > **Extract All** > **Extract**.
 4. Check the file: press Win+R, type `cmd`, Enter, and paste (the folder is where the zip was extracted):
 
    ```
-   certutil -hashfile "%USERPROFILE%\Downloads\EmeraldTogether-Windows-Installer\EmeraldTogether-Setup-Native-3D-CI-486.exe" SHA256
+   certutil -hashfile "%USERPROFILE%\Downloads\EmeraldTogether-Windows-Installer\EmeraldTogether-Setup-Native-3D-CI-499.exe" SHA256
    ```
 
-   The second line it prints must be `88b4ef625efaf6f3debc0890ffa40fe7d37db22c69992f4f77a0cef02bac8047` (the file is
-   59,064,413 bytes). If not, stop and tell me.
+   The second line it prints must be `d74180645e5c8c1dfaf8527cf1a9d57a68d7b91046d3d15d90051d0db9a82718` (the file is
+   59,062,804 bytes). If not, stop and tell me.
 5. Copy the exe to each PC you test on (USB stick or a shared folder).
 6. The installer is not signed: Windows may say "Windows protected your PC". Click **More info** > **Run anyway**.
 
@@ -229,14 +229,19 @@ smooth too), as in test C, step 8.
   every resolution and wrote the log.
 - **Upgrade and fresh install**: every full run installs, starts, repairs and uninstalls the installer on a Windows
   runner, updates from the previous run's installer with two players' worlds and plays on from those saves, and does
-  it again under a user folder named "José 测试" (run 486: all passed, the update from CI-482 among them). The
-  save copies (test A): on a Windows runner the installed CI-486 kept exactly the newest 40 of 47 copies after
-  the game closed, after Continue and at the next start (KNOWN_ISSUES MS-216); your own long-played folders are
+  it again under a user folder named "José 测试" (run 499: all passed, the update from CI-486 among them). The save
+  copies (test A): on a Windows runner the installed CI-486 and CI-499 each kept exactly the newest 40 of 47 copies
+  after the game closed, after Continue and at the next start (KNOWN_ISSUES MS-216); your own long-played folders are
   step 4's count.
 - **Closing right after a save** (MS-259, test A step 6): the installed launcher on a Windows runner watched every
-  status of 44 such closes with CI-486: no false warning (CI-482 showed one in 7 of 26).
+  status of 63 such closes with CI-486 and CI-499: no false warning (CI-482 showed one in 7 of 26).
 - **The relay** (test F step 6): the installed `EmeraldTogether.exe --relay-server` on a Windows runner, a host's
   room and three friends' traffic through it, wrong keys refused (KNOWN_ISSUES NU-10). Never across the Internet.
+- **A world's port taken** (MS-257): on a Windows runner the installed CI-499, with another program on the world's
+  port as the character first entered and as the world was played: "This world's port is already in use on this PC..."
+  both times, no game opened, then the world played on and saved. Close any program using port 7777 if you see it.
+- **Another version** (MS-28, test A step 7): on a Windows runner CI-499 and CI-486 installed side by side refused
+  each other at Check and join, both ways, within 1.3 s ("Different game versions"); nothing saved or created.
 - **Multiplayer**: 2-4 real games through real launchers on one machine (Linux and Windows runners): trades,
   battles, co-op, the Battle Tower, interrupted battles. Never between separate PCs or across a real router.
 - **Sprite pack**: a stand-in pack of plain shapes, in the 3D and Classic test builds: the pack in 3D battles, the
