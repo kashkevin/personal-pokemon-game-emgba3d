@@ -165,7 +165,7 @@ on Windows (runs 479 and 482; KNOWN_ISSUES MS-83's update).
   installation check). Rechecked on Windows since: MS-258's (the Tower proof's `--duo-presses`, run
   [496](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44322657655): passed); MS-257's (`installed-world-check`
   run [46](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44331036119): the first entry's refusal passed, the hosting session's was
-  missing - fixed, L passed, its W the next full run's); MS-259's (`installed-world-check`: 7 of 26 normal closes with
+  missing - fixed, L passed, and W passed in run [499](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44339381099)'s installation check); MS-259's (`installed-world-check`: 7 of 26 normal closes with
   a false warning with CI-482, 0 of 44 with CI-486); MS-216's cleanup (the newest 40 save copies kept after 45 saves,
   run 40). MS-260's fix went into run [486](https://github.com/kashkevin/personal-pokemon-game-emgba3d/actions/runs/44282182983)
   (all 93 jobs passed; CI-486). The owner's checklist covers the real PCs (PC).
