@@ -1013,6 +1013,111 @@ def launcher_ended(check, host):
     return dict(world=world["name"], game_ended_within_seconds=seconds, revisions=[played["saved"], again["saved"]])
 
 
+def save_copies_check(check, host, saves, extra=5):
+    """--save-copies N (KNOWN_ISSUES MS-216, the owner's choice of 2026-11-17: the newest 40 copies of a character's saves
+    are kept per world, every save stays in the world itself), one player, as installed: a character, a Solo world, N
+    Save nows in one game; the game closed normally - the menu then keeps exactly the newest 40 copies, each whole (its
+    bytes match its receipt), the newest the world's own latest save; Continue plays on from it (Save now: the next
+    revision, 40 copies again); a few more saves, then EmeraldTogether.exe ended outright with its game (no menu after
+    the game, so no cleanup then): started again, it cleans up at start-up - the newest 40 once more. Nothing is lost:
+    the world keeps every save (its head is each Save now's revision) and no error is recorded."""
+    from emerald_multiplayer.save_copies import KEEP_SAVE_COPIES, is_whole, save_copies
+    from emerald_multiplayer.shell_store import is_uuid
+    require(saves > KEEP_SAVE_COPIES, f"--save-copies needs more than {KEEP_SAVE_COPIES} saves to show a cleanup")
+    host.start()
+    character = check.create_character(host)
+    host.choose(host.expect("main"), "solo")
+    host.choose(host.expect("solo"), "new")
+    screen = host.expect(("ask_text", "trade_rule"))
+    if screen["id"] == "trade_rule":
+        host.choose(screen, RULE)
+        screen = host.expect("ask_text")
+    host.key("enter")
+    host.key("enter")
+    world = wait(lambda: host.world(host.worlds()[-1]["name"]) if host.worlds() else None, 60)
+    require(world and world["kind"] == "adventure", f"{host.name}: no Solo world was created")
+    game, played = check.enter_and_play(host, world, 0, keep_open=True)
+    folder = host.private / "players" / world["world_id"]
+    accounts = [entry for entry in folder.iterdir() if entry.is_dir() and is_uuid(entry.name)]
+    require(len(accounts) == 1, f"{host.name}: expected one account folder in {folder}: {[e.name for e in folder.iterdir()]}")
+    account = accounts[0]
+
+    def copies():
+        return save_copies(account, account.parent.name, account.name)
+
+    def save_now():
+        screen = host.expect("session", 60, where=lambda s: any(item[1] == "save" for item in s["items"]))
+        before = revision(world, 0) or 0
+        host.choose(screen, "save")
+        after = wait(lambda: (revision(world, 0) or 0) > before and revision(world, 0), 45, step=0.25)
+        require(after == before + 1, f"{host.name}: Save now moved the world's save from revision {before} to {after}")
+        return after
+
+    def state(label):
+        found = copies()
+        head = revision(world, 0)
+        entry = dict(copies=len(found), newest=found[0].revision if found else None,
+                     oldest=found[-1].revision if found else None, whole=all(is_whole(c) for c in found), head=head)
+        host.log(f"{label}: {entry['copies']} copies (revisions {entry['oldest']}-{entry['newest']}), all whole: "
+                 f"{entry['whole']}; the world's latest save: revision {head}")
+        return entry
+
+    report = dict(saves=saves, keep=KEEP_SAVE_COPIES)
+    for _ in range(saves):
+        save_now()
+    report["before_close"] = before = state(f"after {saves} Save nows in one game")
+    require(before["copies"] > KEEP_SAVE_COPIES, f"{host.name}: only {before['copies']} copies after {saves} saves")
+    check.close(host, game)
+    host.expect(("main", "solo"), 120)
+    pruned = wait(lambda: len(copies()) == KEEP_SAVE_COPIES, 30, step=0.5)
+    report["after_close"] = after = state("the game closed")
+    require(pruned and after["whole"] and after["newest"] == after["head"] == before["head"],
+            f"{host.name}: after the game closed the menu kept {after} (expected the newest {KEEP_SAVE_COPIES}, whole, the "
+            f"newest the world's revision {before['head']})")
+    while host.current()["id"] != "main":
+        host.key("escape")
+        time.sleep(1.5)
+    host.choose(host.expect("main", 30), "continue")
+    _, again = check.play(host, world, 0, revision(world, 0) or 0)
+    host.expect(("main", "solo"), 120)
+    wait(lambda: len(copies()) == KEEP_SAVE_COPIES and copies()[0].revision == revision(world, 0), 30, step=0.5)
+    report["after_continue"] = continued = state("Continue, Save now, closed")
+    require(continued["copies"] == KEEP_SAVE_COPIES and continued["whole"] and continued["newest"] == continued["head"]
+            == again["saved"], f"{host.name}: after Continue: {continued}, the save {again['saved']}")
+    # a few more saves, then the launcher ended outright with its game: cleaned up at the next start
+    while host.current()["id"] != "main":
+        host.key("escape")
+        time.sleep(1.5)
+    host.choose(host.expect("main", 30), "continue")
+    host.graphics_choice()
+    game = host.game()
+    host.press_until(game, "a", lambda: False, 40)
+    for _ in range(extra):
+        save_now()
+    report["before_ended"] = state(f"{extra} more Save nows, the game open")
+    host.desk.end_outright(host.process)
+    require(wait(lambda: host.process.poll() is not None, 30, step=0.25), f"{host.name}: the launcher did not end")
+    if not wait(lambda: not host.desk.alive(game[0]), 30, step=0.25):
+        host.desk.close_game(game[0], game[1])
+    menu = host.shell_pid
+    if not wait(lambda: not host.desk.alive(menu), 30, step=0.25):
+        host.desk.close_game(menu, host.menu)
+    report["after_ended"] = state("EmeraldTogether ended outright with its game")
+    host.start()
+    started = wait(lambda: len(copies()) == KEEP_SAVE_COPIES, 30, step=0.5)
+    report["after_start"] = restarted = state("EmeraldTogether started again")
+    require(started and restarted["whole"] and restarted["newest"] == restarted["head"],
+            f"{host.name}: after starting again: {restarted}")
+    latest = next((c for c in host.characters() if c["character_id"] == character["character_id"]), None)
+    require(latest is not None and latest["current"]["world_id"] == world["world_id"],
+            f"{host.name}: the character's latest save is not the Solo world's: {latest and latest.get('current')}")
+    check.finish(host)
+    require(host.error_text() == "", f"{host.name}: an error was recorded: {host.error_text()[-2000:]}")
+    check.log(f"save copies: {saves} Save nows kept the newest {KEEP_SAVE_COPIES} after the game closed, after Continue "
+              f"and at the next start; the world's save at revision {restarted['head']}; no error recorded")
+    return report
+
+
 def installed_files(target):
     """Every installed file's SHA-256 by its path in the program folder (Inno Setup's own uninstaller left out)."""
     return {str(path.relative_to(target)).replace("\\", "/"): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -1194,6 +1299,10 @@ def main():
     parser.add_argument("--launcher-ended", action="store_true",
                         help="one player: the launcher ended outright while its Solo game runs; the game must end with it, "
                              "and EmeraldTogether started again plays on (KNOWN_ISSUES MS-221); --linux takes one --display")
+    parser.add_argument("--save-copies", type=int, default=0, metavar="N",
+                        help="one player: N Save nows in one game (more than 40), then the newest 40 copies kept after the "
+                             "game closes, after Continue and at the next start (KNOWN_ISSUES MS-216); --linux takes one "
+                             "--display")
     parser.add_argument("--stray-keys-at-close", action="store_true",
                         help="Linux: as each registration game closes by itself, A, B and Start land on the menu window "
                              "(KNOWN_ISSUES MS-15)")
@@ -1217,7 +1326,7 @@ def main():
     check = host = friend = None
     try:
         if args.linux:
-            displays = 1 if args.launcher_ended else 2
+            displays = 1 if args.launcher_ended or args.save_copies else 2
             require(args.game and args.rom and args.manifest and len(args.display) == displays,
                     f"--linux needs --game, --rom, --manifest and {'one --display' if displays == 1 else 'two --display'}")
             desk = LinuxDesk(linux_application(args, work), args.display, audit_busy=args.stray_keys_at_close,
@@ -1241,7 +1350,7 @@ def main():
         report["hosted_on"] = "this PC only (--loopback)" if args.loopback else "this PC's local-network address"
         check.log(f"{report['platform']}: {'installed ' + args.setup.name + ' into ' + str(target) if not args.linux else 'Linux game'}")
         host = Player(check, "host", work / "host-profile")
-        friend = None if args.launcher_ended else Player(check, "friend", work / "friend-profile")
+        friend = None if args.launcher_ended or args.save_copies else Player(check, "friend", work / "friend-profile")
         for player in (host, friend):
             if player is not None:
                 player.private.mkdir(parents=True, exist_ok=True)
@@ -1249,11 +1358,14 @@ def main():
         if args.launcher_ended:
             check.strict_close = args.close_warnings == "fail"
             report["launcher_ended"] = launcher_ended(check, host)
+        elif args.save_copies:
+            check.strict_close = args.close_warnings == "fail"
+            report["save_copies"] = save_copies_check(check, host, args.save_copies)
         else:
             # An update's earlier installer may predate MS-259's fix: its launcher's closes are recorded, not failed
             check.strict_close = args.close_warnings == "fail" and (args.linux or args.upgrade_to is None)
             world, slot = run(check, host, friend)
-        if args.upgrade_to is not None and not args.launcher_ended:
+        if args.upgrade_to is not None and not args.launcher_ended and not args.save_copies:
             require(args.linux or args.upgrade_to.is_file(), f"no Setup file at {args.upgrade_to}")
             check.strict_close = args.close_warnings == "fail"
             report["upgrade"] = upgrade(check, host, friend, None if args.linux else args.upgrade_to.resolve(), target, work,

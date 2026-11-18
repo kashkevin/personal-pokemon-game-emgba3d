@@ -4094,6 +4094,15 @@ jobs:
         run: |
           python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
             --work "$RUNNER_TEMP/ended-check" --label ended --launcher-ended
+      - name: A character's save copies kept to the newest 40 (full; KNOWN_ISSUES MS-216)
+        if: env.MODE == 'full'
+        # scripts/windows-runtime/ci_play_check.py --save-copies 45: one player; a character, a Solo world, 45 Save nows in
+        # one game; once the game has closed exactly the newest 40 copies remain, each whole, the newest the world's own
+        # latest save; Continue plays on from it; a few more saves, then EmeraldTogether.exe ended outright with its game:
+        # started again it cleans up at start-up. Every save stays in the world; no error recorded.
+        run: |
+          python scripts/windows-runtime/ci_play_check.py --setup "$(ls installer/EmeraldTogether-Setup-*.exe)" \
+            --work "$RUNNER_TEMP/copies-check" --label copies --save-copies 45
       - name: The installed program as a relay server (full; KNOWN_ISSUES NU-10)
         if: env.MODE == 'full'
         # scripts/windows-runtime/ci_relay_check.py: the installed EmeraldTogether.exe --relay-server (a windowed program that
@@ -4139,6 +4148,9 @@ jobs:
             ${{ runner.temp }}/play-check/*-pictures/
             ${{ runner.temp }}/play-check/*.log
             ${{ runner.temp }}/unicode-check/*/*-play-check.json
+            ${{ runner.temp }}/copies-check/*-play-check.json
+            ${{ runner.temp }}/copies-check/*-screens.jsonl
+            ${{ runner.temp }}/copies-check/*.log
             ${{ runner.temp }}/relay-check/*-relay-check.json
             ${{ runner.temp }}/relay-check/*-relay-output.txt
             ${{ runner.temp }}/unicode-check/*/*.log
