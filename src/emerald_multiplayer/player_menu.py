@@ -219,6 +219,26 @@ def _text(value, limit):
     return "".join(c if 32 <= ord(c) <= 126 else "?" for c in value)[:limit]
 
 
+def world_row(name, place, width=25):
+    """A row of PokeNav > World > Players and weather: who and where, within the menu's row. Where the whole place does
+    not fit after the name, its leading whole words stand ("LITTLEROOT" for LITTLEROOT TOWN, "SAFARI ZONE" for SAFARI ZONE
+    NORTHWEST) and a hidden location is "hidden"; the player's own page shows the whole place. Rows cut at the width
+    read "LITTLEROOT TO" and "Location hidd" (the audit of 2026-11-18, real games)."""
+    from .privacy import HIDDEN_PLACE
+    head = f"{name[:9]} - "
+    if len(head) + len(place) <= width:
+        return head + place
+    if place == HIDDEN_PLACE:
+        return head + "hidden"
+    room, shown = width - len(head), ""
+    for word in place.split(" "):
+        candidate = f"{shown} {word}".strip()
+        if len(candidate) > room:
+            break
+        shown = candidate
+    return head + (shown or place[:room])
+
+
 class PlayerMenu:
     """Bounded team/challenge menus. Native battle execution has another owner."""
 
@@ -1477,7 +1497,7 @@ class PlayerMenu:
         elif page == "world_players":
             title, status = "Players and weather", "Also on the PokeNav map"
             for player in nav["players"][:4]:
-                actions.append((f"{self._name(player['player_id'])[:9]} - {player['place']}", "world_player",
+                actions.append((world_row(self._name(player["player_id"]), player["place"]), "world_player",
                                 (player["player_id"],)))
             # Location privacy (privacy.py): the player's own choice, kept in their profile and shared with the launcher's
             # "Share my location with other players" checkbox; off (private) until the player turns it on.

@@ -21,7 +21,7 @@ log, its saves); a self-test or a unit test alone is not counted as one.
 | Class | Items | Meaning | Done here |
 | --- | --- | --- | --- |
 | A | 73 | Counted as already verified in a real game or with pictures (L or W) | **Re-read by a second reader**: 56 rows name that evidence (appendix A); 17 did not - 13 shown in real runs their rows never cited (now cited), P4 and MS-4 checked now, G13 and U31-5 moved to D (section "The re-read of class A") |
-| B | 33 | Fixed, but never shown in a real game or never pictured: a real check needed | **Run now** (section "B: the checks run"), in three clusters; the checks found 9 more problems (the launcher's behaviour and texts, the Tower Duo's pages), all fixed, one cosmetic leftover and one status seen once, recorded (section "Found by the audit") |
+| B | 33 | Fixed, but never shown in a real game or never pictured: a real check needed | **Run now** (section "B: the checks run"), in three clusters; the checks found 10 more problems (the launcher's behaviour and texts, the Tower Duo's pages, the World page's rows), all fixed, one cosmetic leftover and one status seen once, recorded (section "Found by the audit") |
 | C | 2 | Only real PCs or real networks can show it | Steps in the owner's checklist (`docs/windows-test-20261117.md`); appendix C |
 | D | 18 + 2 | Nothing a player sees (tools, test harnesses, guards with no visible effect), not reachable in the package, or an owner's decision that changed nothing | Appendix D, with why |
 
@@ -96,6 +96,7 @@ below).
 | NU-1 (gap) | A setup game ended just after reaching the field (the host's allocation receipt written): every later setup of that place refused for good | Such an attempt - also another character's at the same place - is set aside when the host holds nothing of it; kept, never deleted | Unit tests (fail without it); **real launchers: setup games killed 0.0, 0.4 and 1.0 s after reaching the field, then a second character's 6.7 s in: each next setup went ahead (the one killed 1.0 s in held the host's allocation receipt: set aside with it), then registered and saved** |
 | NU-3 (gaps) | A replaced invite code: "did not answer in time"; another world's code: "certificate expired" | The host's refusal reported at once in Join Friend's words; another world's certificate is "not the world from your invite" | Unit tests (fail without them); **real launchers: both messages right, the other cases unchanged** |
 | MS-258 | Tower Duo: a second press after Accept opened the team page and a third took the first Pokemon out (the Duo battle fought with 2 of 3); a second press after Ready undid it | A Duo page whose state or own readiness changed is a new page: the game starts it on its first row (a name, no action) | Unit test (fails without it); **real games: every extra press on the first row, the team three, both ready, the Duo battle** |
+| MS-260 | PokeNav > World > Players and weather cut its rows mid-word: "Friend Fl - LITTLEROOT TO", "... - Location hidd" | The place's leading whole words ("LITTLEROOT"), "hidden"; the whole place on the player's own page | Unit test; **real games: "Friend Fl - LITTLEROOT", "Friend Fa - hidden" (pictured)** |
 | MS-259 (seen once) | "This save needs recovery" for 0.2 s as the game closed 0.2 s after a save (the MS-214 recheck); the final message right, nothing pending | Not changed: not reproduced with every failed save traced | - |
 | The audit's own checks | `ci_play_check.play` counted a recovery commit made as the game opened as its Save now, and closed the game during the real one | The Save now's revision is the one after the newest at the press | **MS-214's run again: every step passed** (the host's refusal shown by itself, the kept save committed as revision 3 when the friend joined again, the Save now 4) |
 | MS-210 (cosmetic, recorded) | With all 16 sprite palettes in use, the healing machine's Poke Balls are drawn in another palette's colours | Not changed (the guard skips the write, as designed; only in a Pokemon Center already full of players' sprites) | - |
@@ -104,7 +105,7 @@ below).
 ## The audit's tooling (app, this change)
 
 Kept so every check above can be run again: the co-op proof's `--native-ui`; the abandon proof's `pairs-corestop`; the
-session proof's map-edge crossing sampler (MS-3; `--crossing-only` runs the crossing alone); the Tower proof's
+session proof's map-edge crossing sampler (MS-3; `--crossing-only` runs the crossing alone) and its World pages' step (MS-5); the Tower proof's
 `--duo-presses` (MS-69's Tower Duo pages); the newcomers proof's `trade-failures`, `proxy-stall` (`--proxy-save-stall`), `spawn-leave` and
 `restart-look` scenarios (`audit_trade_checks.py`, `audit_spawn_checks.py`, `audit_restart_checks.py`,
 `audit_tcp_proxy.py`); the challenge proof's `menu-presses` (`audit_menu_checks.py`); `ci_play_check.py`'s
@@ -124,7 +125,7 @@ those was settled (KNOWN_ISSUES has the citations, appended 2026-11-18):
 | --- | --- | --- |
 | MS-2 | Row: a unit test only | The host's own enrollment through its real launcher runs in every launcher proof (`docs/multiplayer-session-fix-20261019.md`'s runs; this audit's own runs) |
 | MS-3 | Row: the fix only | The session proof's four games after a player crosses from Route 101 into Littleroot (the same document); **the moment of the crossing checked now in real games**: four Classic games, the walker over two map edges, the other three read every 20 ms (2,853 samples): never unlinked, snapshots at most 9 frames old (the limit 180), every player on the field in every game throughout |
-| MS-5 | Row: the generated table only | PLAYERS read "Field: LITTLEROOT TOWN" in the session proof; the PokeNav's World page uses the same names and was not pictured: the owner's checklist, Test E step 3 |
+| MS-5 | Row: the generated table only | PLAYERS read "Field: LITTLEROOT TOWN" in the session proof; **the World pages (the PokeNav's World > Players and weather) checked now in real games**: the sharing walker in LITTLEROOT, the others "Location hidden", its page "LITTLEROOT TOWN" (pictured) - and the list's rows cut mid-word: **MS-260**, fixed |
 | MS-14 | Row: two unit tests | Windows installed check 39303520514: "3D graphics cannot start" answered with Classic 2D (`docs/free-for-all-native-fix-20261019.md`) |
 | MS-20 | Row: the rule only | win-late-1 and fixed-ch-failed-2: after a refused Enter, both free, saved, a fresh Continue (`docs/multiplayer-battle-trade-repair-20261020.md`) |
 | NU-2 | Row: a design document | Installed check 39303520514: one New Game each, then Solo, Host World, Join Friend with the same characters (one runner) |
@@ -146,7 +147,6 @@ named their runs only in other documents.
 | MS-89 | A long session's speed and sound on a graphics card and a sound card (growth never reproduced on Linux) | `docs/windows-test-20261117.md`, Test G |
 | NU-4 | Hosting across real networks: automatic router setup, Tailscale, a self-run relay | The checklist, Test F |
 | WC-2 (part) | Hosting again after the host PC's network address changed | The checklist, Test E step 10 |
-| MS-5 (part) | The PokeNav's World page naming another player's town | The checklist, Test E step 3 |
 
 ## What is still not shown, in one place
 

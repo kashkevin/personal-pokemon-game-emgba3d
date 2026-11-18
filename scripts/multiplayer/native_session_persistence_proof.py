@@ -514,6 +514,25 @@ async def cross_into_littleroot(harness, players, session):
     async with asyncio.timeout(20):
         while host.probe.read()["active"]:
             await host.probe.press(B)
+    # KNOWN_ISSUES MS-5: the World pages - the PokeNav's World > Players and weather, the same pages as PLAYERS > World
+    # and my base - name the sharing walker's town from the same table, never "Area" and two numbers.
+    await host.probe.open_players()
+    await host.probe.choose("World and my base")
+    await host.probe.choose("Players and weather")
+    _, screen = await host.probe.ready()
+    world_rows = [r.label for r in screen.rows]
+    session.picture("world-players")
+    walker_row = next((r for r in world_rows if r.startswith(walker.name[:9] + " - ")), None)
+    require(walker_row is not None and "AREA" not in walker_row.upper(), f"the World page's players: {world_rows}")
+    await host.probe.choose(walker_row)
+    _, screen = await host.probe.ready()
+    walker_page = [r.label for r in screen.rows]
+    session.picture("world-player")
+    require(walker_page and "LITTLEROOT" in walker_page[0].upper(), f"the World page does not name the town: {walker_page}")
+    record("world-page-names-the-town", players=world_rows, status=screen.status, walker_page=walker_page)
+    async with asyncio.timeout(20):
+        while host.probe.read()["active"]:
+            await host.probe.press(B)
     return walker
 
 

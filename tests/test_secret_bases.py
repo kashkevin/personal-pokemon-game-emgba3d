@@ -315,6 +315,20 @@ class MenuTests(unittest.IsolatedAsyncioTestCase):
 
     labels = staticmethod(lambda menu: [r.label for r in menu.screen.rows])
 
+    def test_a_players_row_keeps_whole_words_within_the_row(self):
+        """PokeNav > World > Players and weather: the row cut at 25 read "Friend Fl - LITTLEROOT TO" and
+        "Friend Fa - Location hidd" (the audit of 2026-11-18, real games); the place's whole leading words stand."""
+        from emerald_multiplayer.player_menu import world_row
+        self.assertEqual(world_row("Bob", "LITTLEROOT TOWN"), "Bob - LITTLEROOT TOWN")
+        self.assertEqual(world_row("Friend Flo", "LITTLEROOT TOWN"), "Friend Fl - LITTLEROOT")
+        self.assertEqual(world_row("Friend Fay", "Location hidden"), "Friend Fa - hidden")
+        self.assertEqual(world_row("Friend Flo", "SAFARI ZONE NORTHWEST"), "Friend Fl - SAFARI ZONE")
+        self.assertEqual(world_row("Host Hana", "Area 3-4"), "Host Hana - Area 3-4")
+        self.assertEqual(world_row("Abcdefghijk", "SUPERCALIFRAGILISTIC"), "Abcdefghi - SUPERCALIFRAG")
+        for name in ("A", "Friend Flo", "Abcdefghijkl"):
+            for place in ("ROUTE 101", "EVER GRANDE CITY", "Location hidden", "SAFARI ZONE NORTHWEST"):
+                self.assertLessEqual(len(world_row(name, place)), 25)
+
     async def test_world_pages(self):
         menu = PlayerMenu(FakeMenuCompanion())
         await menu.refresh()
