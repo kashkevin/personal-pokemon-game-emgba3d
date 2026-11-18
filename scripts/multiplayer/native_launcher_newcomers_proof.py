@@ -145,15 +145,16 @@ from emerald_multiplayer.trade_mail import MAIL_OFFSET, MAIL_SIZE  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 import trade_eggs_mail_evidence as evidence  # noqa: E402
-from audit_trade_checks import (EXPIRE_EXIT, HOLD_COMMANDS, PAUSE_KEYS, PROXY_SAVE_STALL, PROXY_STOP_BEFORE_CHUNKS,  # noqa: E402
-                                WATCH_BRIDGE, WATCH_WINDOW, ProxyStallMixin, TradeAuditMixin)
+from audit_trade_checks import (DRAIN_TIMEOUT, EXPIRE_EXIT, HOLD_COMMANDS, PAUSE_KEYS, PROXY_SAVE_STALL,  # noqa: E402
+                                PROXY_STOP_BEFORE_CHUNKS, PROXY_WALK_STALL, QUEUE_HOLD_SECONDS, SEND_BLOCK_ENV,
+                                WATCH_BRIDGE, WATCH_WINDOW, ProxyStallMixin, QueueFullMixin, TradeAuditMixin)
 from audit_spawn_checks import SpawnLeaveMixin  # noqa: E402
 from audit_restart_checks import RestartLookMixin  # noqa: E402
 
 PLAYER_NAMES = ("New Host", "New Friend 1", "New Friend 2", "New Friend 3")
 SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve", "trade-forms", "trade-mail", "trade-egg",
              "give-up", "give-up-mid-turn", "give-up-knockout", "give-up-switch", "give-up-2v2", "trade-failures",
-             "proxy-stall", "spawn-leave", "restart-look")
+             "proxy-stall", "spawn-leave", "restart-look", "queue-full")
 # The give-ups whose --source saves hold the parties their battle needs (make_tower_saves.py giveup-ko-*, giveup-switch-*)
 GIVE_UP_HOLDING = ("give-up-knockout", "give-up-switch")
 # Scenarios whose --source saves already hold Pokemon (no claims): their parties are the sources' own.
@@ -225,7 +226,7 @@ def read_at(probe, address, size):
         return memory.read(size)
 
 
-class NewcomersProof(TradeAuditMixin, ProxyStallMixin, SpawnLeaveMixin, RestartLookMixin, SoftResetProof,
+class NewcomersProof(TradeAuditMixin, ProxyStallMixin, QueueFullMixin, SpawnLeaveMixin, RestartLookMixin, SoftResetProof,
                      ThreePlayerProof):
     """The newcomer proof's claims, the soft reset proof's RESET page and the three-player proof's drawing checks, for
     two to four players."""
@@ -1039,6 +1040,8 @@ class NewcomersProof(TradeAuditMixin, ProxyStallMixin, SpawnLeaveMixin, RestartL
             return await self.trade_failures(current, probes, record)      # audit_trade_checks.py
         if self.scenario == "proxy-stall":
             return await self.proxy_stall(current, probes, symbols, record)    # audit_trade_checks.py
+        if self.scenario == "queue-full":
+            return await self.queue_full(current, probes, symbols, record)     # audit_trade_checks.py
         if self.scenario == "spawn-leave":
             return await self.spawn_leave(current, probes, games, record)      # audit_spawn_checks.py
         if self.scenario == "restart-look":
@@ -1997,6 +2000,8 @@ async def run(args):
         player_runtime._MAX_FILE = args.max_runtime_file_mb * 1024 * 1024
     PROXY_STOP_BEFORE_CHUNKS[0] = args.proxy_stop_before_chunks
     PROXY_SAVE_STALL[0] = args.proxy_save_stall
+    PROXY_WALK_STALL[0], DRAIN_TIMEOUT[0] = args.proxy_walk_stall, args.drain_timeout
+    QUEUE_HOLD_SECONDS[0] = args.queue_hold
     if args.hold_commands:
         player, seconds = args.hold_commands.split(":")
         HOLD_COMMANDS[0] = (int(player), float(seconds))
@@ -2025,7 +2030,7 @@ async def run(args):
         battle_session.GAME_ANSWER_SECONDS = args.game_answer_seconds
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
-    two = ("trade", "battle-trade", "trade-failures", "proxy-stall", "spawn-leave", "restart-look", *HOLDING,
+    two = ("trade", "battle-trade", "trade-failures", "proxy-stall", "queue-full", "spawn-leave", "restart-look", *HOLDING,
            *(name for name in GIVE_UPS if name != "give-up-2v2"))
     require(args.scenario == "lobby" or count == 4 or (args.scenario in two and count == 2),
             f"--scenario {args.scenario} needs four players (trade: two)")
@@ -2038,11 +2043,20 @@ async def run(args):
         require(WINDOWS, "an X display per player")
         args.display = [f"desktop-{n}" for n in range(count)]         # Windows: one desktop; names for the records
     environment = dict(SDL_FRAMEBUFFER_ACCELERATION="0")
+    if args.scenario == "queue-full":
+        # the send_block shim in every process of the run (DIR/$LIB/send_block.so: ld.so picks the 32-bit or the 64-bit
+        # one); it holds only the sends of a game whose flag file "<base>.<pid>" exists (QueueFullMixin)
+        require(args.send_block, "--scenario queue-full needs --send-block DIR")
+        folder = Path(args.send_block).resolve()
+        require(any(folder.glob("lib/*/send_block.so")), f"no send_block.so under {folder}/lib/*/")
+        environment["LD_PRELOAD"] = f"{folder}/$LIB/send_block.so"
+        environment[SEND_BLOCK_ENV] = str(Path(args.output).resolve() / "send-block")
     if args.scenario == "trade-egg":
         # the test build's breed log (its party's and PC's Eggs and their cycles, its banners) in each game's own
         # TEST_LOG (NewcomersProof.adopt)
         environment["PKMN_TEST_BREED_LOG"] = "1"
-    if args.scenario in ("trade-mail", "trade-egg", "trade-failures", "proxy-stall", "spawn-leave", "restart-look",
+    if args.scenario in ("trade-mail", "trade-egg", "trade-failures", "proxy-stall", "queue-full", "spawn-leave",
+                         "restart-look",
                          *GIVE_UP_HOLDING):
         # the sources' own parties (make_tower_saves.py's trade-mail-a/-b, trade-egg-a/-b, giveup-ko-a/-b,
         # giveup-switch-a/-b)
@@ -2170,6 +2184,17 @@ def main():
                              "answers may take up to companion.CHECKPOINT_ANSWER_SECONDS, 15 s)")
     parser.add_argument("--proxy-stop-before-chunks", action="store_true",
                         help="proxy-stall: the proxy is stopped before the save's first chunk is written (not once it went)")
+    parser.add_argument("--proxy-walk-stall", type=float, default=0.0, metavar="SECONDS",
+                        help="proxy-stall: also stop the proxy this long while both players walk (KNOWN_ISSUES MS-124: a "
+                             "write waits over 1 s; the friend must stay linked)")
+    parser.add_argument("--send-block", default=None, metavar="DIR",
+                        help="queue-full: the folder of the send_block shim (DIR/lib/i386-linux-gnu/send_block.so and "
+                             "DIR/lib/x86_64-linux-gnu/send_block.so; KNOWN_ISSUES MS-123)")
+    parser.add_argument("--queue-hold", type=float, default=3.0, metavar="SECONDS",
+                        help="queue-full: how long the game's save answer is left waiting behind the full queue")
+    parser.add_argument("--drain-timeout", type=float, default=None, metavar="SECONDS",
+                        help="proxy-stall: the host's and the friend's companion's drain_timeout for this run (1.0: the "
+                             "value before app 89a27d5, for a run to compare; the walking stall then comes first)")
     parser.add_argument("--watch-bridge", action="store_true",
                         help="with --freeze worker:...: the frozen player's game's bridge queue to its companion")
     args = parser.parse_args()

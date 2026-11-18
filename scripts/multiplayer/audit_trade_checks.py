@@ -33,7 +33,8 @@ from pathlib import Path
 import subprocess
 import time
 
-from native_launcher_battle_proof import game_picture, unpack_screen
+from native_launcher_battle_proof import (KEYS, PLAYER_OPTIONS, PLAYERS, TRAINER_CARD, game_picture,
+                                         unpack_screen)
 from native_launcher_challenge_proof import pick, shown
 from native_launcher_ffa_proof import A, DOWN, LEFT, RIGHT, UP, close_players, pose_of, step
 from qualify_admission_cleanup import on_worker, require
@@ -578,6 +579,13 @@ PROXY_BUFFER = 4096
 PROXY_STALL_SECONDS = 3.0
 PROXY_SAVE_STALL = [3.0]          # --proxy-save-stall: the stall during the save's upload
 PROXY_STOP_BEFORE_CHUNKS = [False]     # --proxy-stop-before-chunks
+# --proxy-walk-stall: (d) both players walk while the link holds everything this long: their poses and the host's
+# snapshots keep coming, so a write waits until the link moves again - over 1 s, which dropped the player before app
+# 89a27d5, and under the 10 s drain_timeout since (0: not run)
+PROXY_WALK_STALL = [0.0]
+# --drain-timeout: the host's and the friend's companion's drain_timeout for the run (None: as configured, 10 s;
+# 1.0 the value before app 89a27d5, for a run to compare); the friend may then be dropped and join again
+DRAIN_TIMEOUT = [None]
 
 
 class ProxyStallMixin:
@@ -764,12 +772,86 @@ class ProxyStallMixin:
         record("proxy-stalled", where=where, seconds=round(time.monotonic() - started - 2, 1),
                drains_meanwhile=self.drains[before:])
 
+    async def drain_timeouts(self, current, record, seconds=None):
+        """--drain-timeout: the host's server's and the friend's companion's drain_timeout set for this run (their
+        configs are frozen dataclasses, replaced whole; each write reads it anew), or read back (seconds None)."""
+        import dataclasses
+
+        async def host_side(s):
+            if seconds is not None:
+                s._server.config = dataclasses.replace(s._server.config, drain_timeout=seconds)
+            return s._server.config.drain_timeout
+
+        async def friend_side(s):
+            c = s._companion
+            if seconds is not None:
+                c.config = dataclasses.replace(c.config, drain_timeout=seconds)
+            return c.config.drain_timeout
+        values = dict(host=await on_worker(current[0], host_side), friend=await on_worker(current[1], friend_side))
+        record("drain-timeouts", **values, set_for_the_run=seconds is not None)
+        return values
+
+    async def walk_stall(self, current, probes, record, state):
+        """(d) --proxy-walk-stall: both players walk left and right on the field (0.4 s each way, as a player does)
+        while the proxy holds the friend's link for PROXY_WALK_STALL seconds: each presence of the friend and each
+        snapshot and pose the host sends the friend meet a link that takes nothing, so the writers' small buffers fill
+        and a write waits for the link (every drain over 0.3 s recorded, its side and seconds). With the configured
+        10 s a write may wait that long: the friend must stay linked (the same session on both ends) and some write must
+        have waited over 1 s (the limit before app 89a27d5, which dropped the player). With --drain-timeout the result
+        is recorded only, and the friend, if dropped, must be back within 60 s."""
+        stop = asyncio.Event()
+
+        async def walker(probe):
+            held = 0
+            while not stop.is_set():
+                key = (KEYS[LEFT], KEYS[RIGHT])[held % 2]
+                await asyncio.to_thread(probe._chord, (key,), .4)
+                held += 1
+            return held
+        walkers = [asyncio.create_task(walker(probes[n])) for n in (0, 1)]
+        try:
+            await asyncio.sleep(3)
+            before = len(self.drains)
+            await self.stall_proxy(PROXY_WALK_STALL[0], record, "both players walking")
+            meanwhile = self.drains[before:]
+            await asyncio.sleep(3)
+        finally:
+            stop.set()
+            holds = await asyncio.gather(*walkers, return_exceptions=True)
+            # the last steps end and the field comes to rest: a save refuses a moving party ("unsafe")
+            await asyncio.sleep(3)
+        after = await self.link_state(current)
+        same = (after["friend"]["connected"] and after["friend"]["epoch"] == state["friend"]["epoch"]
+                and after["host"] is not None and not after["host"]["closed"] and after["host"]["id"] == state["host"]["id"])
+        longest = max((d["seconds"] for d in meanwhile), default=0.0)
+        record("walk-stall", seconds=PROXY_WALK_STALL[0], holds=holds, drains=meanwhile, longest_wait=longest,
+               over_1_s=[d for d in meanwhile if d["seconds"] > 1.0], link_before=state, link_after=after,
+               same_link=same, drain_timeout=DRAIN_TIMEOUT[0] or "configured")
+        if DRAIN_TIMEOUT[0] is None:
+            require(same, f"the friend's link did not survive the walking stall: {state} -> {after}")
+            require(longest > 1.0, f"no write waited over 1 s during the walking stall (longest {longest} s): "
+                                   f"the stall did not reach MS-124's condition")
+            return after
+        deadline = time.monotonic() + 60
+        while not (after["friend"]["connected"] and after["host"] is not None and not after["host"]["closed"]):
+            require(time.monotonic() < deadline, f"the friend was not linked again within 60 s: {after}")
+            await asyncio.sleep(1)
+            after = await self.link_state(current)
+        record("walk-stall-linked-again", link=after, same_session=after["host"]["id"] == state["host"]["id"])
+        return after
+
     async def proxy_stall(self, current, probes, symbols, record):
         await self.save_all(current, record, "saved-before-the-stalls")
         require(self.proxied, "the friend's launcher did not connect through the proxy")
         state = await self.link_state(current)
         record("friend-linked-through-the-proxy", link=state, proxied=self.proxied)
         await self.small_buffers(current, record)
+        await self.drain_timeouts(current, record, DRAIN_TIMEOUT[0])
+        if PROXY_WALK_STALL[0] and DRAIN_TIMEOUT[0] is not None:
+            # a run to compare: the walking stall first, then the configured value back for the rest
+            await self.walk_stall(current, probes, record, state)
+            await self.drain_timeouts(current, record, 10.0)
+            state = await self.link_state(current)
         # (a) a stall while the friend's save uploads
         revision = (await self.launcher(current[1]))["revision"]
         self.upload_started.clear()
@@ -816,6 +898,162 @@ class ProxyStallMixin:
                    proxies={port: via for port, (_, via) in self.proxies.items()})
             require(again["friend"]["connected"] and again["host"] is not None and not again["host"]["closed"],
                     f"the friend's link did not survive the stall during the download: {again}")
+        if PROXY_WALK_STALL[0] and DRAIN_TIMEOUT[0] is None:
+            # (d) both players walking while the link holds everything
+            await self.walk_stall(current, probes, record, await self.link_state(current))
+        parties = await self.heads(current, self.harness.host)
+        revisions = [(await self.launcher(w))["revision"] + 1 for w in current]
+        return dict(parties=parties, revisions=revisions)
+
+
+# MS-123: a save answer that finds the game's reliable queue to its companion full ------------------------------------
+# struct MpBridge's save command in the 32-bit PC game (offsetof() from a probe compiled with -m32 against
+# include/platform/mp_bridge.h, sizeof 31400 as above): whether a save command waits for the game's answer, its opcode
+BRIDGE_SAVE_PENDING, BRIDGE_SAVE_OPCODE = 27036, 27052
+# the game's save mailbox (gMultiplayerSaveMailbox, 512 bytes): the generation of the game's answer (odd while written)
+SAVE_RESPONSE_GENERATION = 268
+SEND_BLOCK_ENV = "AUDIT_SEND_BLOCK"     # the send_block shim's flag base: "<base>.<pid>" blocks that game's sends
+QUEUE_HOLD_SECONDS = [3.0]              # --queue-hold: how long the answer is left waiting once it came
+
+
+class QueueFullMixin:
+    """--scenario queue-full (two players with Pokemon: coop-a, coop-b; --send-block DIR). The send_block shim
+    (DIR/$LIB/send_block.so, preloaded into every process of the run, inert without its flag) makes the friend's game's
+    send() report "would block" (EAGAIN) while a flag file names its pid - as a socket its companion has stopped
+    reading leaves no room - while its reads go on, so its companion's commands still arrive. Its bridge then keeps
+    each reliable frame for its companion in its queue (MP_BRIDGE_CONTROL_LIMIT, 4). The friend opens PLAYERS and
+    closes it with B, as a player does (each OPEN and CLOSE a reliable frame), until the queue holds 4, read from the
+    game's sBridge every 20 ms; then presses Save in its launcher: the companion's save command arrives and the game
+    answers it while the queue is full. Before engine 7dbbb1c8 that answer stopped the bridge for good ("save control
+    backpressure"), and with it the trade or battle; now it waits in the game's mailbox. QUEUE_HOLD_SECONDS later the
+    sends go on: the queue must drain, the answer go out and the save land (the revision one more), the bridge
+    connected throughout and its game's log without a stop."""
+
+    def queue_addresses(self):
+        found = {}
+        for line in subprocess.run(["nm", "-S", str(self.harness.game)], capture_output=True, text=True,
+                                   check=True).stdout.splitlines():
+            parts = line.split()
+            if len(parts) == 4 and parts[3] in ("sBridge", "gMultiplayerSaveMailbox"):
+                found[parts[3]] = int(parts[0], 16)
+        require(set(found) == {"sBridge", "gMultiplayerSaveMailbox"}, f"the game's symbols: {found}")
+        return found
+
+    def queue_state(self, pid, where):
+        with open(f"/proc/{pid}/mem", "rb", buffering=0) as memory:
+            def read(address, size):
+                memory.seek(address)
+                return int.from_bytes(memory.read(size), "little")
+            bridge = where["sBridge"]
+            return dict(queued=read(bridge + CONTROL_COUNT, 4), tx=read(bridge + TX_LENGTH, 4),
+                        connected=read(bridge + CONNECTED, 1), save_pending=read(bridge + BRIDGE_SAVE_PENDING, 1),
+                        save_opcode=read(bridge + BRIDGE_SAVE_OPCODE, 4),
+                        answer_generation=read(where["gMultiplayerSaveMailbox"] + SAVE_RESPONSE_GENERATION, 4))
+
+    async def players_open_and_close(self, probe):
+        """START > the player > PLAYERS (each step read back, as open_players does), then B at once: the menu, which
+        no screen reaches while the game's sends are held, closes again."""
+        def top(r):
+            return 0 < r["count"] <= len(r["actions"]) and PLAYER_OPTIONS in r["actions"][:r["count"]]
+
+        def submenu(r):
+            return r["actions"][0] == TRAINER_CARD and PLAYERS in r["actions"][:r["count"]]
+        await probe.press(8, release=60)
+        await probe.snapshot(top, timeout=30)
+        await probe.start_menu_row(top, PLAYER_OPTIONS, submenu)
+        await probe.start_menu_row(submenu, PLAYERS, lambda r: r["active"])
+        opened = probe.read()
+        await probe.press(2, release=60)
+        deadline = time.monotonic() + 10
+        while probe.read()["active"]:
+            require(time.monotonic() < deadline, "PLAYERS did not close with B")
+            await asyncio.sleep(.1)
+        return dict(waiting=opened.get("waiting"), active=opened.get("active"))
+
+    async def queue_full(self, current, probes, symbols, record):
+        import json as _json
+        await self.save_all(current, record, "saved-before-the-queue-fills")
+        base = os.environ.get(SEND_BLOCK_ENV)
+        require(base, f"--send-block: {SEND_BLOCK_ENV} is not set")
+        probe = probes[1]
+        where = self.queue_addresses()
+        flag = Path(f"{base}.{probe.pid}")
+        samples, stop = [], asyncio.Event()
+        started = time.monotonic()
+
+        async def sampler():
+            while not stop.is_set():
+                try:
+                    state = self.queue_state(probe.pid, where)
+                except OSError:
+                    break
+                samples.append([round(time.monotonic() - started, 2), state["queued"], state["tx"], state["connected"],
+                                state["save_pending"], state["save_opcode"], state["answer_generation"]])
+                await asyncio.sleep(.02)
+        watcher = asyncio.create_task(sampler())
+        revision = (await self.launcher(current[1]))["revision"]
+        record("queue-before", state=self.queue_state(probe.pid, where), revision=revision, pid=probe.pid)
+        flag.write_text("held by the proof\n")
+        held_at = time.monotonic()
+        cycles = []
+        try:
+            for _ in range(4):
+                cycles.append(await self.players_open_and_close(probe))
+                await asyncio.sleep(.3)
+                if self.queue_state(probe.pid, where)["queued"] >= CONTROL_LIMIT:
+                    break
+            full = self.queue_state(probe.pid, where)
+            record("queue-filled", cycles=cycles, state=full, seconds=round(time.monotonic() - held_at, 1))
+            require(full["queued"] == CONTROL_LIMIT and full["connected"],
+                    f"the friend's bridge queue did not fill ({full}) after {len(cycles)} PLAYERS openings")
+            answer_before = full["answer_generation"]
+            saving = asyncio.create_task(self.save_now(1, current[1]))
+            # the companion's save command reaches the game, which answers it into its mailbox: the answer's generation
+            # moves on while the queue is still full
+            deadline = time.monotonic() + 12
+            answered = None
+            while time.monotonic() < deadline:
+                state = self.queue_state(probe.pid, where)
+                if state["answer_generation"] != answer_before and state["answer_generation"] % 2 == 0:
+                    answered = dict(state, seconds_after_save=round(time.monotonic() - held_at, 1))
+                    break
+                require(not saving.done() or not saving.exception(), f"Save failed at once: {saving.exception()!r}")
+                await asyncio.sleep(.02)
+            require(answered is not None, "the game did not answer the save command while its sends were held")
+            await asyncio.sleep(QUEUE_HOLD_SECONDS[0])
+            waiting = self.queue_state(probe.pid, where)
+            record("save-answer-met-a-full-queue", answered=answered, after_the_hold=waiting,
+                   hold_seconds=QUEUE_HOLD_SECONDS[0])
+            require(answered["queued"] == CONTROL_LIMIT and waiting["queued"] == CONTROL_LIMIT,
+                    f"the queue was not full when the answer came: {answered} / {waiting}")
+            require(waiting["connected"], f"the bridge stopped while the answer waited: {waiting}")
+        finally:
+            if flag.exists():
+                flag.unlink()
+            released_at = time.monotonic()
+        await saving
+        await self.saved(current[1], revision, seconds=90)
+        drained = self.queue_state(probe.pid, where)
+        stop.set()
+        await watcher
+        full_spans = [s for s in samples if s[1] >= CONTROL_LIMIT]
+        log_lines = []
+        for path in Path(self.harness.output).rglob("runtime.log"):
+            try:
+                text = path.read_text(errors="replace")
+            except OSError:
+                continue
+            log_lines += [line.strip() for line in text.splitlines()
+                          if "backpressure" in line or "bridge stopped" in line.lower()]
+        after = (await self.launcher(current[1]))["revision"]
+        record("queue-drained-and-saved", revisions=[revision, after], drained=drained,
+               seconds_held=round(released_at - held_at, 1), samples=len(samples),
+               full_for_seconds=round(len(full_spans) * .02, 1),
+               connected_throughout=all(s[3] for s in samples),
+               bridge_stops_in_the_logs=log_lines, first_samples=samples[:5], last_samples=samples[-5:])
+        require(after == revision + 1, f"the friend's save did not land: {revision} -> {after}")
+        require(all(s[3] for s in samples), "the friend's bridge was not connected throughout")
+        require(not log_lines, f"a game's log says its bridge stopped: {_json.dumps(log_lines)[:400]}")
         parties = await self.heads(current, self.harness.host)
         revisions = [(await self.launcher(w))["revision"] + 1 for w in current]
         return dict(parties=parties, revisions=revisions)
