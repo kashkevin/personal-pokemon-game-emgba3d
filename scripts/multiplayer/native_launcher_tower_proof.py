@@ -511,6 +511,89 @@ async def form_team(probes, host, record):
 
 
 SEEN_BATTLES = set()       # the co-op battles already fought (the menu keeps their challenges listed)
+DUO_PRESSES = False        # --duo-presses (KNOWN_ISSUES MS-69's Tower Duo pages)
+
+
+def menu_now(probe):
+    """The PLAYERS page the game shows: its title, status, rows, the row under the cursor and whether that row acts."""
+    row = probe.read()
+    if not row["active"]:
+        return dict(active=False)
+    try:
+        # the Tower's pages carry their style (bytes 238-239) and the Tower's flags: read as the Tower's reader does
+        screen = unpack_screen(row["screen"], allow_battle_admission=True, allow_new_page=True, allow_tower=True)[1]
+    except ValueError:
+        return dict(active=True, unreadable=True)
+    rows = [r.label for r in screen.rows]
+    cursor = row["cursor"]
+    return dict(active=True, waiting=bool(row["waiting"]), title=screen.title, status=screen.status, rows=rows,
+                under_cursor=rows[cursor] if cursor < len(rows) else None,
+                acts=bool(cursor < len(screen.rows) and screen.rows[cursor].action))
+
+
+async def settled_menu(probe, seconds=2.5):
+    """The page once the game takes input again (or `seconds` on)."""
+    until = time.monotonic() + seconds
+    while time.monotonic() < until:
+        now = menu_now(probe)
+        if now.get("active") and not now.get("waiting") and not now.get("unreadable"):
+            return now
+        await asyncio.sleep(.05)
+    return menu_now(probe)
+
+
+async def back_to_duo_page(probe, floor, record, label, *, ready=False):
+    """--duo-presses: where the extra presses left the player - back (B) to the Duo's own page if they opened another
+    one; the page's rows recorded (its team row says whether a press changed the team); with `ready`, the player made
+    ready again if a press took it back ("Not ready" is the row then)."""
+    seen = []
+    for _ in range(4):
+        now = await settled_menu(probe)
+        seen.append(dict(title=now.get("title"), rows=now.get("rows"), under_cursor=now.get("under_cursor")))
+        if now.get("title") == f"Duo: floor {floor}":
+            break
+        await probe.press(B)
+        await asyncio.sleep(1.0)
+    now = await settled_menu(probe)
+    record("duo-presses-" + label, pages=seen, duo_page=dict(title=now.get("title"), status=now.get("status"),
+                                                              rows=now.get("rows")))
+    require(now.get("title") == f"Duo: floor {floor}", f"not back on the Duo's page: {seen}")
+    if ready and "Ready" in (now.get("rows") or []):
+        await probe.choose("Ready")
+        record("duo-presses-" + label + "-ready-again", rows=(await settled_menu(probe)).get("rows"))
+    return now
+
+
+async def choose_duo_row(probe, label, record, page, *, prefix=False):
+    """Choose `label`; with --duo-presses as a player who presses twice: A again at once (the window may still wait for
+    its answer) and once more when the next page shows (the cursor where the game keeps it) - each press's row and what
+    came of it recorded (KNOWN_ISSUES MS-69: a choice that ends something for the other player asks first, No first, and
+    no row the asking press leaves under the cursor acts at once)."""
+    if not DUO_PRESSES:
+        await probe.choose(label, prefix=prefix)
+        return None
+    _, screen = await probe.ready(timeout=30)
+    before = menu_now(probe)
+    await probe.choose(label, wait=False, prefix=prefix)
+    presses = []
+    for k in range(2):
+        if k == 0:
+            landed = menu_now(probe)
+        else:
+            await asyncio.sleep(1.0)
+            landed = await settled_menu(probe)
+        await probe.press(A)
+        after = await settled_menu(probe)
+        presses.append(dict(press=k + 2, on=landed.get("under_cursor"), row_acts=landed.get("acts"),
+                            waiting=landed.get("waiting"),
+                            then=dict(title=after.get("title"), status=after.get("status"), rows=after.get("rows"))))
+    await asyncio.sleep(1.0)
+    final = await settled_menu(probe)
+    record("duo-presses-" + page, chose=label, page_before=before.get("title"), presses=presses, final=final)
+    text = json.dumps(dict(presses=presses, final=final)).lower()
+    require("cancelled" not in text and "declined" not in text and "left the duo" not in text,
+            f"a second press on the Duo's {page} page ended something: {presses} {final}")
+    return final
 
 
 async def duo_ready_again(probes, record):
@@ -543,7 +626,7 @@ async def duo_battle(current, probes, host, symbols, record, *, floor=None, mega
     if floor is None:
         invite = next(r.label for r in screen.rows if r.label.startswith("Invite: floor"))
         floor = int(invite.split()[-1])
-        await probes[0].choose(invite)
+        await choose_duo_row(probes[0], invite, record, "invite")
     else:
         await probes[0].choose("Invite: replay a floor")
         _, screen = await probes[0].ready()
@@ -553,14 +636,20 @@ async def duo_battle(current, probes, host, symbols, record, *, floor=None, mega
     # player 2: Tower > Duo: floor F (invited) > Accept
     await open_tower(probes[1])
     await probes[1].choose(next(r.label for r in (await probes[1].ready())[1].rows if r.label.startswith("Duo: floor")))
-    await probes[1].choose(f"Accept: floor {floor}")
+    await choose_duo_row(probes[1], f"Accept: floor {floor}", record, "accept")
     record("tower-duo-accepted", floor=floor)
+    if DUO_PRESSES:
+        await back_to_duo_page(probes[1], floor, record, "after-accept")
     # both: Ready (their teams: the host's automatic choice)
-    await probes[1].choose("Ready")
+    await choose_duo_row(probes[1], "Ready", record, "ready-invited")
+    if DUO_PRESSES:
+        await back_to_duo_page(probes[1], floor, record, "after-ready-invited", ready=True)
     await close_players(probes[1])
     await open_tower(probes[0])
     await probes[0].choose(next(r.label for r in (await probes[0].ready())[1].rows if r.label.startswith("Duo: floor")))
-    await probes[0].choose("Ready")
+    await choose_duo_row(probes[0], "Ready", record, "ready-inviter")
+    if DUO_PRESSES:
+        await back_to_duo_page(probes[0], floor, record, "after-ready-inviter", ready=True)
     await close_players(probes[0])
     return await duo_fight(current, probes, host, symbols, record, floor, megas, give_up)
 
@@ -1425,6 +1514,232 @@ class TowerScenario:
         record("tower-forfeit-counted-as-a-loss", player=view["player"], last=view.get("last"))
         return dict(expected=[p.party_now() for p in probes])
 
+    async def clock_jump(self, current, probes, games, host, symbols, record):
+        """KNOWN_ISSUES MS-219 in real games: the host PC's clock set forward (--clock-shift, default a day and an hour)
+        while a solo Tower battle runs. Run this proof's whole process (the world's host and the launchers) under
+        libfaketime: LD_PRELOAD=libfaketime.so.1 FAKETIME_TIMESTAMP_FILE=<--clock-file, holding +0>
+        FAKETIME_NO_CACHE=1 FAKETIME_DONT_FAKE_MONOTONIC=1 - the wall clock moves when the file changes, the clocks that
+        never jump (monotonic, boot time) do not; the games are 32-bit and keep the PC's clock. Player --clock-slot's
+        progress floor through the menus; once the host's Tower book says the battle started (and the game is in it),
+        the file says --clock-shift; the game wins: the host must count the floor won (P = N + 1), not forfeited."""
+        slot = self.args.clock_slot
+        probe, worker = probes[slot], current[slot]
+        clock_file = self.args.clock_file
+        require(clock_file is not None and clock_file.exists(), "--clock-file: libfaketime's offset file")
+        require("libfaketime" in os.environ.get("LD_PRELOAD", ""), "this proof's process must run under libfaketime")
+        start = tower_record(probe)
+        floor = start.progress if start else 1
+        record("clock-before", wall=time.time(), boottime=time.clock_gettime(time.CLOCK_BOOTTIME),
+               monotonic=time.monotonic(), offset=clock_file.read_text().strip(), floor=floor,
+               view=await tower_view(worker))
+        before, party_before = tower_record(probe), own_party(probe)
+        await open_tower(probe)
+        await probe.choose(f"Solo: floor {floor}")
+        await probe.choose("Start the battle", wait=False)
+        await probe.snapshot(lambda r: not r["active"], timeout=30)
+        record("tower-command-taken", slot=slot, floor=floor)
+        shifted = {}
+
+        async def shift_when_started():
+            async with asyncio.timeout(240):
+                while True:
+                    view = await tower_view(worker)
+                    battle = view.get("battle") or {}
+                    if in_battle(probe) and battle.get("state") == "started":
+                        break
+                    await asyncio.sleep(.25)
+            wall, boot = time.time(), time.clock_gettime(time.CLOCK_BOOTTIME)
+            clock_file.write_text(self.args.clock_shift + "\n")
+            shifted.update(view_before=battle, wall_before=wall, wall_after=time.time(), boottime_before=boot,
+                           boottime_after=time.clock_gettime(time.CLOCK_BOOTTIME), shift=self.args.clock_shift,
+                           in_battle=in_battle(probe))
+            record("clock-shifted-during-the-battle", **shifted)
+            for wait in (2, 10):
+                await asyncio.sleep(wait)
+                view = await tower_view(worker)
+                record("tower-book-after-the-shift", seconds=wait, battle=view.get("battle"), last=view.get("last"),
+                       player=view.get("player"), in_battle=in_battle(probe))
+        watcher = asyncio.create_task(shift_when_started())
+        try:
+            await play_local_battle(probe, record, slot, f"floor {floor}")
+            await asyncio.wait_for(asyncio.shield(watcher), 30)
+        finally:
+            if not watcher.done():
+                watcher.cancel()
+        require(shifted, "the clock was not shifted while the battle ran")
+        view = await _settle_floor(probe, worker, record, slot, floor, before, party_before, True, False)
+        record("tower-clock-jump-result", last=view.get("last"), player=view.get("player"), wall=time.time(),
+               offset=clock_file.read_text().strip())
+        require((view.get("last") or {}).get("state") == "won", f"the floor is not counted won: {view.get('last')}")
+        return dict(expected=[p.party_now() for p in probes])
+
+    def party_items(self, probe):
+        """Each party Pokemon's slot, personality, species, level and held item, decoded from the game's memory (read
+        only): the growth substructure's species (11 bits) and held item (10 bits)."""
+        from emerald_multiplayer.ownership import _SUBSTRUCT_OFFSETS
+        count, raw = probe.party_bytes()
+        rows = []
+        for i in range(count):
+            mon = raw[i * 100:(i + 1) * 100]
+            personality, ot_id = struct.unpack_from("<II", mon)
+            words = tuple(v ^ personality ^ ot_id for v in struct.unpack_from("<12I", mon, 32))
+            physical = struct.pack("<12I", *words)
+            logical = b"".join(physical[k * 12:k * 12 + 12] for k in (row[personality % 24] for row in _SUBSTRUCT_OFFSETS))
+            rows.append(dict(slot=i, personality=f"{personality:08x}", species=struct.unpack_from("<H", logical, 0)[0] & 0x7FF,
+                             item=struct.unpack_from("<H", logical, 2)[0] & 0x3FF, level=mon[84]))
+        return rows
+
+    async def held_items(self, current, probes, games, host, symbols, record):
+        """KNOWN_ISSUES MS-48 in real games: player --clock-slot's solo floor with a party whose Nincada (one point of
+        experience short of level 20, holding Choice Specs) and Gligar (one point short of its next level, holding a
+        Razor Fang) level up from the battle's shared experience: after it the Nincada evolves (a free party slot and a
+        Poke Ball: Ninjask and Shedinja), and at night (--world-clock) the Gligar into Gliscor. The Tower gives back
+        the held items it kept: the Choice Specs once (to the Ninjask, the first Pokemon with that personality - not a
+        copy to the Shedinja), the Razor Fang not at all (the evolution used it)."""
+        slot = self.args.clock_slot
+        probe, worker = probes[slot], current[slot]
+
+        async def clock(s):
+            return s._companion._server.shared_world.clock_view() if getattr(s._companion, "_server", None) else None
+        hours = probe.mem("gLocalTime", 6)
+        record("held-items-before", party=self.party_items(probe),
+               game_clock=dict(days=struct.unpack_from("<h", hours, 0)[0], hours=hours[2], minutes=hours[3]))
+        start = tower_record(probe)
+        floor = start.progress if start else 1
+        await solo_floor(probe, worker, record, slot, floor)
+        after = self.party_items(probe)
+        hours = probe.mem("gLocalTime", 6)
+        record("held-items-after", party=after,
+               game_clock=dict(days=struct.unpack_from("<h", hours, 0)[0], hours=hours[2], minutes=hours[3]))
+        by_species = {row["species"]: row for row in after}
+        shedinja, ninjask = by_species.get(292), by_species.get(291)
+        gliscor, gligar = by_species.get(472), by_species.get(207)
+        record("held-items-verdict",
+               nincada_evolved=ninjask is not None, shedinja_made=shedinja is not None,
+               shedinja_item=None if shedinja is None else shedinja["item"],
+               ninjask_item=None if ninjask is None else ninjask["item"],
+               gligar_evolved=gliscor is not None, gliscor_item=None if gliscor is None else gliscor["item"],
+               gligar_item=None if gligar is None else gligar["item"])
+        require(ninjask is not None and shedinja is not None, f"the Nincada did not evolve into Ninjask and Shedinja: {after}")
+        require(shedinja["item"] == 0, f"the Shedinja holds item {shedinja['item']} (a copy of the Nincada's)")
+        require(ninjask["item"] == 443, f"the Ninjask does not hold its Choice Specs: {ninjask['item']}")
+        if gliscor is not None:
+            require(gliscor["item"] == 0, f"the Gliscor got item {gliscor['item']} back (its Razor Fang, used to evolve)")
+        # The party gained a Pokemon (the Shedinja, with an owner serial of its own): the closing saves are compared with
+        # the canonical parties as the host now holds them (the host saved the game after the floor), as a trade's are.
+        from qualify_live_runtime import party
+
+        async def heads(s):
+            rows = [inspect_closed_head(s._store, account.player_id) for account in host.accounts]
+            return [party(head) for head in rows], [head.revision for head in rows]
+        parties, revisions = await on_worker(current[0], heads)
+        record("held-items-canonical", parties=parties, revisions=revisions)
+        return dict(parties=parties, revisions=[r + 1 for r in revisions])
+
+    async def milestone_full(self, current, probes, games, host, symbols, record):
+        """KNOWN_ISSUES MS-51 in real games: player --clock-slot's save has a full party and a full PC and floor 25 next
+        (make_tower_saves.py ms51-full-b, standing below Oldale Town's Pokemon Center PC). Floor 25 (Giovanni) is won and
+        the game asks "Go on to floor 26?" - NO saves it on the host, full; its milestone Pokemon finds no room (owed).
+        The player makes room without saving (the PC: a Pokemon released, pc_release_probe.py's keys) and sends it from
+        the Tower (Prizes and shop > Send ... now): made (receipt 1). The game is then closed before the player saves and
+        started again through the launcher: its save is the full one, the host's replayed word finds no room - the
+        milestone must be owed again (before the fix: kept as delivered and "Send it now" refused), the game told "NO ROOM
+        FOR YOUR POKEMON"; room made again and Send ... now delivers the very same Pokemon, once."""
+        from pc_release_probe import release_one, stored_count
+        slot = self.args.clock_slot
+        harness = self.harness
+        probe, worker = probes[slot], current[slot]
+
+        def room(p):
+            party = self.party_items(p)
+            return dict(party=len(party), stored=stored_count(p), last=party[-1] if party else None)
+
+        def milestone(view, floor=25):
+            return next((m for m in view.get("milestones") or () if m["floor"] == floor), None)
+
+        async def milestone_state(states, seconds=180):
+            deadline = time.monotonic() + seconds
+            while True:
+                view = await tower_view(worker)
+                entry = milestone(view)
+                if entry is not None and entry["state"] in states:
+                    return view, entry
+                require(time.monotonic() < deadline, f"the milestone never reached {states}: {entry}")
+                await asyncio.sleep(1)
+
+        async def send_now(p, w):
+            await open_tower(p)
+            await p.choose("Prizes and shop")
+            _, screen = await p.ready()
+            rows = [r.label for r in screen.rows]
+            label = next((r for r in rows if r.startswith("Send ")), None)
+            record("ms51-prizes-page", status=screen.status, rows=rows)
+            require(label is not None, f"no Send ... now row on the Prizes page: {rows} ({screen.status})")
+            await p.choose(label, wait=False)
+            await asyncio.sleep(2)
+            _, screen = await p.ready()
+            record("ms51-sent", status=screen.status, rows=[r.label for r in screen.rows])
+            await close_players(p)
+
+        start = tower_record(probe)
+        record("ms51-before", record=dataclasses.asdict(start) if start else None, room=room(probe),
+               view=await tower_view(worker))
+        floor = start.progress
+        require(floor == 25, f"the save's next floor is {floor}, not 25")
+        await solo_floor(probe, worker, record, slot, floor)
+        view, entry = await milestone_state(("owed",))
+        record("ms51-no-room-after-the-floor", milestone=entry, room=room(probe), player=view["player"])
+        before, after = await release_one(probe, symbols, picture=None, record=lambda row: record("ms51-release-1", **row))
+        record("ms51-room-made", room=room(probe))
+        notice_before = int.from_bytes(probe.mem("sShownNoticeId", 4), "little")
+        await send_now(probe, worker)
+        view, entry = await milestone_state(("delivered",))
+        first = room(probe)
+        record("ms51-delivered-once", milestone=entry, room=first,
+               notice=int.from_bytes(probe.mem("sShownNoticeId", 4), "little") != notice_before)
+        # closed before the player saves: an ordinary close, then the launcher starts the game again
+        game = games[slot]
+        os.kill(game.process.pid, signal.SIGTERM)
+        await harness.poll_until(lambda: game.process.returncode is not None, 60)
+        await harness.poll_until(lambda: not current[slot].busy, 180)
+        record("ms51-closed-before-saving", exit_code=game.process.returncode)
+        again = await harness.start("rejoin", slot)
+        harness.players[slot] = again
+        current[slot], probes[slot], games[slot] = again.worker, again.probe, again.game
+        probe, worker = again.probe, again.worker
+        await harness.ready(again)
+        record("ms51-started-again", room=room(probe), record=dataclasses.asdict(tower_record(probe)))
+        view, entry = await milestone_state(("owed",), seconds=240)
+        await asyncio.sleep(3)
+        record("ms51-owed-again", milestone=entry, room=room(probe), player=view["player"],
+               notice=int.from_bytes(probe.mem("sShownNoticeId", 4), "little"),
+               picture=game_picture(probe, harness.output / "ms51-no-room-again.png"))
+        before, after = await release_one(probe, symbols, picture=None, record=lambda row: record("ms51-release-2", **row))
+        record("ms51-room-made-again", room=room(probe))
+        await send_now(probe, worker)
+        view, entry = await milestone_state(("delivered",))
+        second = room(probe)
+        record("ms51-delivered-again", milestone=entry, room=second, same_pokemon=(second["last"] or {}).get("species")
+               == (first["last"] or {}).get("species") and (second["last"] or {}).get("personality")
+               == (first["last"] or {}).get("personality"))
+        await asyncio.sleep(20)
+        view = await tower_view(worker)
+        record("ms51-twenty-seconds-on", milestone=milestone(view), room=room(probe))
+        # Saved now, and the closing saves compared with the canonical parties the host then holds (the party changed
+        # Pokemon: a Mewtwo released, the milestone Pokemon with an owner serial of its own).
+        from qualify_live_runtime import party
+
+        async def status_revision(s):
+            return s.status.revision
+        await harness.save(again, await on_worker(worker, status_revision) + 1)
+
+        async def heads(s):
+            rows = [inspect_closed_head(s._store, account.player_id) for account in host.accounts]
+            return [party(head) for head in rows], [head.revision for head in rows], wallet_of(rows[slot].payload)
+        parties, revisions, saved = await on_worker(current[0], heads)
+        record("ms51-saved", parties=parties, revisions=revisions, stored=saved["stored"], record=saved["tower"])
+        return dict(parties=parties, revisions=[r + 1 for r in revisions])
+
     async def after_save(self, current, host, record):
         """The canonical checkpoints after the match's saves: the prizes and the record (solo, climb, duo-climb, join,
         duo-give-up)."""
@@ -1522,6 +1837,8 @@ UI_3D_SETTINGS = "\n".join(("resolution=960x540", "displayMode=windowed", "rende
 
 
 async def run(args):
+    global DUO_PRESSES
+    DUO_PRESSES = bool(getattr(args, "duo_presses", False))
     sources = (args.source_a, args.source_b)
     if not args.display:
         require(WINDOWS, "an X display per player")
@@ -1529,23 +1846,50 @@ async def run(args):
     if args.floors is None:
         args.floors = 100 if args.scenario in ("climb", "duo-climb") else 11
     scenario = TowerScenario(args)
+
+    def on_harness(harness):
+        scenario.harness = harness
+        if args.world_clock:
+            setup = harness.setup_world
+
+            async def setup_then_clock():
+                await setup()
+                import sqlite3
+                hours, minutes = (int(v) for v in args.world_clock.split(":"))
+                path = harness.host.directory / "world.sqlite3.shared-world.sqlite3"
+                with sqlite3.connect(path) as db:
+                    (seconds,) = db.execute("SELECT seconds FROM clock WHERE id=1").fetchone()
+                    wanted = seconds // 86400 * 86400 + hours * 3600 + minutes * 60
+                    db.execute("UPDATE clock SET seconds=? WHERE id=1", (wanted,))
+                harness.record("world-clock-set", path=path.name, before=seconds, after=wanted)
+            harness.setup_world = setup_then_clock
     await launcher_proof(args, names=NAMES, sources=tuple(sources), party_counts=tuple(args.party_counts),
                          match=getattr(scenario, args.scenario.replace("-", "_")),
                          version=f"Native Tower proof ({args.scenario})",
-                         after_boot=lambda phase, slot, probe, companion: into_town(phase, slot, probe, companion),
+                         after_boot=None if args.scenario == "milestone-full"     # its source stands at a PC
+                         else lambda phase, slot, probe, companion: into_town(phase, slot, probe, companion),
                          settings=UI_3D_SETTINGS if args.scenario == "ui" else "windowScale=2\n",
                          scope=__doc__.split("\n\n")[0],
                          environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="1" if args.native_ui else "0",
                                           **dict(item.split("=", 1) for item in args.test_env)),
-                         after_save=scenario.after_save, on_harness=lambda h: setattr(scenario, "harness", h),
+                         after_save=scenario.after_save, on_harness=on_harness,
                          after_continue=scenario.after_continue)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--scenario", choices=("solo", "duo", "join", "mega", "forfeit", "ui", "climb", "duo-climb", "next",
-                                               "championship", "duo-give-up"),
+                                               "championship", "duo-give-up", "clock-jump", "held-items", "milestone-full"),
                         required=True)
+    parser.add_argument("--clock-file", type=Path, help="clock-jump: libfaketime's offset file (FAKETIME_TIMESTAMP_FILE)")
+    parser.add_argument("--clock-shift", default="+25h", help="clock-jump: the offset written once the battle started")
+    parser.add_argument("--world-clock", help="HH:MM: the world's clock set to this time of its day before it is hosted "
+                                              "(the shared world's stored clock; held-items: night for the Razor Fang)")
+    parser.add_argument("--clock-slot", type=int, choices=(0, 1), default=1,
+                        help="clock-jump: the player whose solo battle it is (1: the friend)")
+    parser.add_argument("--duo-presses", action="store_true",
+                        help="duo: each Duo row (Invite, Accept, Ready) chosen, then A again at once and once more when "
+                             "the next page shows (KNOWN_ISSUES MS-69's Tower Duo pages); nothing may be cancelled")
     parser.add_argument("--give-up", type=int, choices=(1, 2), default=2,
                         help="duo-give-up: the player who gives up in the Duo battle (2: the one who joined)")
     parser.add_argument("--test-env", action="append", default=[],

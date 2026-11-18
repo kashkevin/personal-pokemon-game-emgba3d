@@ -33,6 +33,7 @@ MESSAGES = {
     "setup_failed": "Setup could not finish. Existing worlds, original saves and recovery files were retained.",
     "world_invalid": "This private host world could not be verified.",
     "world_active": "Close the running host before setting up a character.",
+    "port_in_use": "This world's port is already in use on this PC: close the running host, or the other program using that port, then try again.",
     "trade_effect_policy_required": "Choose the world's trade friendship rule. An existing world's choice cannot be replaced here.",
     "trade_effect_migration_required": "Select the closed world and use Upgrade world features before hosting this game.",
     "trade_native_replay_failed": "The host could not verify native trade history. Existing saves and recovery records were retained.",

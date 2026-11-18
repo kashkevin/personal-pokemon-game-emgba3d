@@ -103,7 +103,7 @@ EXTRA_NEEDED = ("gMain", "CB2_StarterChoose", "CB2_Overworld", "CB2_TrainerCard"
                 "gSaveBlock1Ptr", "gSaveBlock2Ptr", "gSaveBlock3Ptr", "PlayerHandleYesNoInput", "sCoopAward", "sCoopExp",
                 "gBattleStruct", "gSaveCounter", "sLockFieldControls", "Task_HandleYesNoInput",
                 "sForfeitAsking", "sGiveUpTogetherAsking", "gMultiplayerWorldMailbox", "sShownNoticeId", "sPartyMenuInternal", "sMailRead",
-                "CB2_MailRead", "CB2_ExitOnKeyPress", "gPokemonStoragePtr", "gPaletteFade", "gBattleOutcome")
+                "CB2_MailRead", "CB2_ExitOnKeyPress", "gPokemonStoragePtr", "gPaletteFade", "gBattleOutcome", "gLocalTime")
 WINDOWS = sys.platform == "win32"
 
 

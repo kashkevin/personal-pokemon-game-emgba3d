@@ -43,9 +43,10 @@ import route_timeline
 from native_launcher_battle_proof import inspect_closed_head, launcher_proof, party, unpack_screen
 from native_launcher_ffa_proof import close_players, into_littleroot, players_tab, pose_of
 from qualify_admission_cleanup import on_worker, require
+from audit_menu_checks import MenuAuditMixin
 
 SCENARIOS = ("enter-both", "friend-save", "host-save", "save-failed", "late-enter", "reconnect", "trade",
-             "trade-battle", "trade-walk")
+             "trade-battle", "trade-walk", "menu-presses")
 PLAYER_NAMES = ("CH Host", "CH Friend", "CH Third", "CH Fourth")   # four sources: the third and fourth stay on the field
 
 
@@ -94,7 +95,7 @@ async def pick(probe, label=None, *, again=None, timeout=60):
     return screen.rows[found[0]].label
 
 
-class ChallengeProof(AbandonProof):
+class ChallengeProof(MenuAuditMixin, AbandonProof):
     """With four sources, players 3 and 4 stay on the field the whole time (1v1, trade, while others explore)."""
 
     def __init__(self, scenario, watch, late, match_seconds, fixed=False, perf=False):
@@ -300,6 +301,8 @@ class ChallengeProof(AbandonProof):
             # "Connected: 2/4": the players connected, out of the world's four places.
             require(status.startswith(f"Connected: {len(probes)}/"), f"player {index}'s PLAYERS: {status} {rows}")
         record("linked-before-the-challenge", sessions=[(await self.launcher(w)).get("epoch") for w in current])
+        if self.scenario == "menu-presses":
+            return await self.menu_presses(current, probes, host, symbols, record)      # audit_menu_checks.py
         if len(probes) == 4:      # after every PLAYERS check above: from here players 3 and 4 only walk
             self.explorers = asyncio.create_task(self.explore(current, probes, (2, 3)))
         if self.want_perf:

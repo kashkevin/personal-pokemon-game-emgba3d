@@ -188,8 +188,9 @@ class LinuxDesk:
     KEYS = dict(down="Down", up="Up", home="Home", end="End", enter="Return", escape="Escape", tab="Tab", backspace="BackSpace")
     GAME_KEYS = dict(a="z", b="x", start="Return", up="Up", down="Down", left="Left", right="Right")
 
-    def __init__(self, application, displays):
+    def __init__(self, application, displays, audit_busy=False, world_port=None):
         self.application, self.displays = application, displays
+        self.audit_busy, self.world_port = audit_busy, world_port
         self.display_of = {}            # each player's launcher process: its display
         self.profile_display = {}       # each player's display, handed out in the order they first start; kept on a restart
         self.found = {}                 # any other process of a player's (a menu, a game): (display, start time), kept once found
@@ -200,6 +201,10 @@ class LinuxDesk:
             self.profile_display[key] = self.displays[len(self.profile_display)]
         display = self.profile_display[key]
         env = dict(os.environ, DISPLAY=display, SDL_AUDIODRIVER="dummy", **{SCREEN_LOG: str(screen_log)})
+        if self.audit_busy:
+            env["AUDIT_BUSY_LOG"] = "1"
+        if self.world_port:
+            env["AUDIT_WORLD_PORT"] = str(self.world_port)
         env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT / "tests"), str(HERE)])
         process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--linux-app", str(self.application),
                                     str(profile)], env=env, cwd=str(profile))
@@ -514,8 +519,9 @@ def revision(world, slot):
 
 class PlayCheck:
     def __init__(self, desk, work, label, report, lines, loopback=False, rejoin_count=0, second_character=False, host_leaves=False,
-                 friend_menu=False):
+                 friend_menu=False, stray_keys=False):
         self.desk, self.work, self.label, self.report, self.lines = desk, work, label, report, lines
+        self.stray_keys = stray_keys
         self.loopback = loopback
         self.rejoin_count, self.second_character = rejoin_count, second_character
         self.host_leaves_first = host_leaves
@@ -573,7 +579,10 @@ class PlayCheck:
         player.graphics_choice()
         game = player.game()
         player.log(f"entering {world['name']}: the game opened on the character (pid {game[0]}); choosing CONTINUE")
-        player.press_until(game, "a", lambda: not player.desk.alive(game[0]), 300)
+        if self.stray_keys:
+            self.stray_keys_at_close(player, game, world)
+        else:
+            player.press_until(game, "a", lambda: not player.desk.alive(game[0]), 300)
         require(not player.desk.alive(game[0]), f"{player.name}: the registration game did not close by itself within five minutes "
                                                  f"(last screen {player.current() and player.current()['notes'][:2]})")
         first = wait(lambda: (revision(record, slot) or 0) > (after or 0) and revision(record, slot), 30)
@@ -583,6 +592,50 @@ class PlayCheck:
                               f"(revision {first}); the menu shows {after['id']}: {after['title']} {after['notes'][:4]}")
         player.log(f"the character entered {world['name']} (the world saved it: revision {first}); the game closed by itself")
         return self.play(player, world, slot, first, host_world=host_world, keep_open=keep_open, registered=first)
+
+    def stray_keys_at_close(self, player, game, world):
+        """--stray-keys-at-close (KNOWN_ISSUES MS-15): A until the registration game closes by itself, the game watched
+        every 20 ms; the moment it has closed, A, B and Start (the game's keys: Z, X, Enter) land on the menu window, as
+        a player's keys meant for the game do (its busy screen's only button is Cancel), each only while the menu still
+        shows the registration's busy screen. What each key met is recorded."""
+        desk = player.desk
+        title = f"enters {world['name']}"
+        menu = desk.window(player.shell_pid)            # found while the game still runs: no time lost at its close
+        deadline = time.time() + 300
+        while desk.alive(game[0]) and time.time() < deadline:
+            try:
+                desk.game_key(game[1], "a")
+            except (CheckFailed, subprocess.CalledProcessError):
+                pass
+            for _ in range(40):
+                if not desk.alive(game[0]):
+                    break
+                time.sleep(0.02)
+        closed = time.time()
+        sent = []
+        if menu:
+            desk._focus(menu)
+        for key in ("a", "b", "start"):
+            # Only on the registration's busy screen: a key that already ended it must not meet the next screen
+            # (in a run of 00:35 the third key of a burst cancelled the session start's "Checking graphics").
+            screen = player.current() or {}
+            busy = screen.get("id") == "busy" and title in screen.get("title", "")
+            if busy and menu:
+                subprocess.run(["xdotool", "key", desk.GAME_KEYS[key]], env=desk._env(menu[0]), check=True)
+                time.sleep(0.25)                    # a player's next key, and time for the menu to log a new screen
+            sent.append(dict(key=key, seconds_after_close=round(time.time() - closed, 3), screen=screen.get("id"),
+                             title=screen.get("title"), sent=bool(busy and menu)))
+            if not busy:
+                break
+        time.sleep(3)
+        cancels = []
+        log = player.private / "audit-busy.jsonl"
+        if log.is_file():
+            cancels = [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+        self.report.setdefault("stray_keys_at_close", []).append(dict(player=player.name, world=world["name"], keys=sent,
+                                                                      menu_records=cancels))
+        player.log(f"stray keys as the registration game closed: {sent}; the menu's busy screens: {cancels[-3:]}")
+        player.picture("after-stray-keys")
 
     def play(self, player, world, slot, first, *, host_world=None, keep_open=False, registered=None):
         """The session game: CONTINUE, then Save now until the world holds a revision after ``first``."""
@@ -595,6 +648,10 @@ class PlayCheck:
             player.press_until(game, "a", lambda: False, 40 if attempt == 0 else 10)
             screen = player.expect("session", 60, where=lambda s: any(item[1] == "save" for item in s["items"]))
             require(player.desk.alive(game[0]), f"{player.name}: the game closed while playing")
+            # A save kept on this PC (KNOWN_ISSUES MS-214) is committed by the closed-start recovery as the game opens: a
+            # revision that is not this Save now's. The Save now's is the one after the newest at the press (the audit of
+            # 2026-11-17: counting the recovery's, the check closed the game during its own save).
+            first = max(first, revision(record, slot) or 0)
             player.choose(screen, "save")
             saved = wait(lambda: (revision(record, slot) or 0) > first and revision(record, slot), 45)
             if saved:
@@ -1028,6 +1085,29 @@ def linux_app(application, profile):
     installation = GameInstallation(Path(record["rom"]), Path(record["manifest"]), record["rom_sha256"], record["manifest_sha256"],
                                     RuntimeBundle(Path(record["runtime"]), record["runtime_sha256"]))
     executable, _ = installation.bundle.verify()
+    if os.environ.get("AUDIT_WORLD_PORT"):
+        # --world-port: the first port new worlds of this profile take (world_registry.free_port starts at its
+        # DEFAULT_PORT, 7777), for a PC where another program already listens on 7777
+        from emerald_multiplayer import world_registry
+        world_registry.DEFAULT_PORT = int(os.environ["AUDIT_WORLD_PORT"])
+    if os.environ.get("AUDIT_BUSY_LOG"):
+        # --stray-keys-at-close: the menu's own record of a cancelled busy screen and of _came_in's answer (proof
+        # instrumentation in the check's process; the menu's code runs unchanged)
+        audit = Path(private) / "audit-busy.jsonl"
+        real_busy, real_came_in = ShellApp.busy, ShellApp._came_in
+
+        def busy(self, title, job, text, **options):
+            result = real_busy(self, title, job, text, **options)
+            with audit.open("a") as out:
+                out.write(json.dumps(dict(t=round(time.time(), 2), busy=title, cancelled=result is None)) + "\n")
+            return result
+
+        def came_in(self, character, world_id, player_id, before):
+            result = real_came_in(self, character, world_id, player_id, before)
+            with audit.open("a") as out:
+                out.write(json.dumps(dict(t=round(time.time(), 2), came_in=result, character=character.name)) + "\n")
+            return result
+        ShellApp.busy, ShellApp._came_in = busy, came_in
     shell = ShellProcess([str(executable), "--shell"], cwd=private)
     app = ShellApp(installation, private, shell, version="Linux rehearsal", worker=SessionWorker(installation, private))
     try:
@@ -1068,6 +1148,11 @@ def main():
     parser.add_argument("--launcher-ended", action="store_true",
                         help="one player: the launcher ended outright while its Solo game runs; the game must end with it, "
                              "and EmeraldTogether started again plays on (KNOWN_ISSUES MS-221); --linux takes one --display")
+    parser.add_argument("--stray-keys-at-close", action="store_true",
+                        help="Linux: as each registration game closes by itself, A, B and Start land on the menu window "
+                             "(KNOWN_ISSUES MS-15)")
+    parser.add_argument("--world-port", type=int, default=None,
+                        help="Linux: new worlds start looking for a port here instead of 7777 (another program has 7777)")
     parser.add_argument("--linux-app", nargs=2, metavar=("INSTALLATION", "PROFILE"), help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.linux_app:
@@ -1086,7 +1171,8 @@ def main():
             displays = 1 if args.launcher_ended else 2
             require(args.game and args.rom and args.manifest and len(args.display) == displays,
                     f"--linux needs --game, --rom, --manifest and {'one --display' if displays == 1 else 'two --display'}")
-            desk = LinuxDesk(linux_application(args, work), args.display)
+            desk = LinuxDesk(linux_application(args, work), args.display, audit_busy=args.stray_keys_at_close,
+                             world_port=args.world_port)
         else:
             require(os.name == "nt" and args.setup is not None, "this check runs on Windows with --setup (or use --linux)")
             import ci_world_check as w
@@ -1102,7 +1188,7 @@ def main():
             desk = WindowsDesk(target / "EmeraldTogether.exe")
         check = PlayCheck(desk, work, args.label, report, lines, loopback=args.loopback, rejoin_count=args.rejoin,
                           second_character=args.second_character, host_leaves=args.host_leaves,
-                          friend_menu=args.friend_menu)
+                          friend_menu=args.friend_menu, stray_keys=args.stray_keys_at_close)
         report["hosted_on"] = "this PC only (--loopback)" if args.loopback else "this PC's local-network address"
         check.log(f"{report['platform']}: {'installed ' + args.setup.name + ' into ' + str(target) if not args.linux else 'Linux game'}")
         host = Player(check, "host", work / "host-profile")

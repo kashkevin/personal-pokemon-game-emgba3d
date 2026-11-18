@@ -203,6 +203,13 @@ def verify_rom_manifest(rom_path: Path, manifest_path: Path) -> tuple[str, dict[
     return actual_hash, manifest
 
 
+# A save's (checkpoint's) wait for each answer of the host. The link itself survives a write stalled up to drain_timeout
+# (10 s, KNOWN_ISSUES MS-124) and finds a dead host after remote_timeout (20 s); 5 s failed a save into recovery
+# ("Saving stopped: restart game") on a stall the link survived (the audit of 2026-11-17: a 5 s stall at a save's
+# start, a real friend behind a stalled proxy).
+CHECKPOINT_ANSWER_SECONDS = 15.0
+
+
 @dataclass(frozen=True)
 class CompanionConfig:
     rom_path: Path
@@ -2165,7 +2172,8 @@ class Companion:
             else:
                 future.set_result(validated)
 
-    async def checkpoint_rpc(self, operation: str, *, request_id: str | None = None, timeout: float = 5.0, **fields: Any) -> dict[str, Any]:
+    async def checkpoint_rpc(self, operation: str, *, request_id: str | None = None, timeout: float = CHECKPOINT_ANSWER_SECONDS,
+                             **fields: Any) -> dict[str, Any]:
         """Use the existing reader so heartbeat/presence continue during transfers."""
         message, future = _checkpoint_request(self, operation, request_id, fields)
         try:
@@ -2176,7 +2184,7 @@ class Companion:
             if not future.done():
                 future.cancel()
 
-    async def checkpoint_pipeline(self, operation: str, requests, *, window: int, timeout: float = 5.0):
+    async def checkpoint_pipeline(self, operation: str, requests, *, window: int, timeout: float = CHECKPOINT_ANSWER_SECONDS):
         """checkpoint_rpc for each field dict of the iterator `requests` in order, up to `window` of them sent before the oldest is
         answered; yields the answers in that order. All of it runs in the caller's task (a live-save lifecycle's
         transfer stays its own), and the host takes a connection's messages one by one in order, so each answer is

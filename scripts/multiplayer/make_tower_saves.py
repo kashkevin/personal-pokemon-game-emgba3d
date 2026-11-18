@@ -172,10 +172,24 @@ FIXTURES = (  # (name, source, party, record "highest:progress" or None[, bag "i
     # SPECIES_GOLEM with MOVE_EXPLOSION and SPECIES_SHEDINJA; SPECIES_NINJASK with MOVE_SPIKES and SPECIES_ZIGZAGOON
     ("giveup-switch-a", "a", "76:50:v153,292:20", None),
     ("giveup-switch-b", "b", "291:30:v191,263:5", None),
+    # KNOWN_ISSUES MS-48: a level-100 Mewtwo lead (Dazzling Gleam), a Nincada one point of experience short of level 20
+    # holding Choice Specs and a Gligar one point short of level 31 holding a Razor Fang (SPECIES_NINCADA 290,
+    # SPECIES_GLIGAR 207, ITEM_CHOICE_SPECS 443, ITEM_RAZOR_FANG 493); 5 Poke Balls (ITEM_POKE_BALL 1) and three free
+    # party slots: a solo floor's shared experience evolves both (the Gligar at night), the Nincada with a Shedinja
+    ("ms48-items-b", "b", "150:100:v605,290:19:ei443,207:30:ei493", None, "1:5"),
+    # the same with three different personalities (natures 1 and 2 for the Nincada and the Gligar: CreateTestMon steps
+    # the personality until the nature matches), so only the Shedinja shares the Nincada's personality, as in play
+    ("ms48-items2-b", "b", "150:100:v605,290:19:ei443n1,207:30:ei493n2", None, "1:5"),
+    # KNOWN_ISSUES MS-51: as tower-strong25 (floor 24 cleared, 25 next: Giovanni, the first milestone floor) with a full
+    # PC (PKMN_TEST_BOX's one Zigzagoon, then PKMN_TEST_PC_FULL: every empty PC slot a Zigzagoon), standing below Oldale
+    # Town's Pokemon Center PC (MAP_OLDALE_TOWN_POKEMON_CENTER_1F 2.2, the PC at 10,1): a full party and a full PC
+    ("ms51-full-b", "b", STRONG, (24, 25), "", "2:2:-1:10:2", False, "",
+     dict(PKMN_TEST_BOX="0:0:263:5", PKMN_TEST_PC_FULL="1")),
 )
 
 
-def make_one(mega_check, exe, display, source, out, name, party, record, bag="", warp="", fast=False, flags=""):
+def make_one(mega_check, exe, display, source, out, name, party, record, bag="", warp="", fast=False, flags="",
+             extra_env=None):
     """The test build loads `source`, gives it `party` (and `record`, and `bag`'s items; at `warp` first; with `fast`
     the options fast text and battle scene off; `flags` set) and saves; the copy is OUT/name.sav."""
     rundir = out / f"run-{name}"
@@ -189,6 +203,7 @@ def make_one(mega_check, exe, display, source, out, name, party, record, bag="",
         env["PKMN_TEST_FAST_OPTIONS"] = "1"
     if flags:
         env["PKMN_TEST_SET_FLAGS"] = flags
+    env.update(extra_env or {})
     args = types.SimpleNamespace(exe=str(exe), save=str(source), display=display)
     process, output = mega_check.start(args, str(rundir), env)
     code = mega_check.finish(process, output, 240)

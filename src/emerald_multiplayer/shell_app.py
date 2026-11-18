@@ -1221,7 +1221,8 @@ class ShellApp:
         self.window(self.session_window)
         state = dict(code="installation", state="validating", autosave=None, is_host=request.mode == "host", save=False,
                      battle=False, cleanup=False, abandon=False, restart=False, trade=False, connected=False, complete=None,
-                     note=note, flash=None, router=None, relay=None, detail=None, failure=None, share_location=None)
+                     note=note, flash=None, flash_code=None, router=None, relay=None, detail=None, failure=None,
+                     share_location=None)
 
         def absorb():
             changed = False
@@ -1236,6 +1237,11 @@ class ShellApp:
                     state["failure"] = getattr(event, "failure", None)
                     changed = True
                 elif event.kind == "status":
+                    if state["flash"] is not None and event.code != state["flash_code"]:
+                        # The answer to the row just chosen ("Saving...") stands until the session's status moves on
+                        # (saving, saved, or why not); it hid every later status until another row was chosen, the
+                        # disk-full texts of KNOWN_ISSUES MS-214 and MS-215 among them (the audit of 2026-11-17).
+                        state["flash"] = None
                     state.update(code=event.code, state=event.state, autosave=event.autosave_enabled, save=bool(event.save_available),
                                  battle=event.battle_recovery_available, cleanup=event.admission_cleanup_available,
                                  abandon=getattr(event, "battle_abandon_available", False),
@@ -1302,7 +1308,7 @@ class ShellApp:
                 if event.kind == "tick":
                     outcome = event.value
                     break
-                state["flash"] = None
+                state["flash"], state["flash_code"] = None, state["code"]
                 if event.id == "save":
                     state["flash"] = "Saving..." if worker.request_save() else "Saving is not available right now."
                 elif event.id == "autosave":

@@ -285,6 +285,19 @@ class Session:
                 await asyncio.sleep(.5)
         return False
 
+    async def walk_out_of_littleroot(self, player):
+        """North out of Littleroot Town onto Route 101 (x 10, the town's north road): for --crossing-only from a start in
+        the town, a map edge crossed the other way."""
+        for _ in range(60):
+            now = await self.pose(player)
+            if tuple(now[2:4]) == ROUTE_101 and now[5] <= 17:
+                return
+            if tuple(now[2:4]) == LITTLEROOT and now[4] != 10:
+                await self.step(player, RIGHT if now[4] < 10 else LEFT)
+            else:
+                await self.step(player, UP)
+        raise AssertionError(f"could not reach Route 101: {await self.pose(player)}")
+
     async def walk_to_littleroot(self, player):
         here = await self.pose(player)
         require(here is not None and tuple(here[2:4]) == ROUTE_101, f"expected Route 101: {here}")
@@ -364,6 +377,9 @@ async def scenario(harness, players, session):
     require(status == f"Connected: {count}/4" and any(r.startswith(host.name) for r in rows),
             f"the Players tab does not list everyone: {status} {rows}")
     record("players-tab-baseline", slot=1, status=status, rows=rows)
+    if getattr(harness.args, "crossing_only", False):
+        # KNOWN_ISSUES MS-3 alone: the map-edge crossing with every game sampled, without the outbreak and the battles
+        return await cross_into_littleroot(harness, players, session)
 
     # A mass outbreak (this world's settings start the first one four active minutes in, not after 8-15): its place
     # rides in the shared-world record's bytes 192-199 for the Town Map, which the game's bridge refused until
@@ -428,6 +444,15 @@ async def scenario(harness, players, session):
         session.picture(label + "-after")
         record("back-on-the-field-same-session", label=label, sessions=sessions)
 
+    return await cross_into_littleroot(harness, players, session)
+
+
+async def cross_into_littleroot(harness, players, session):
+    """Step 4: the last player shares its location and walks from Route 101 into Littleroot Town (the map edge
+    sampled for KNOWN_ISSUES MS-3), still listed everywhere, its Players page saying where it is."""
+    record = harness.record
+    count = len(players)
+    host = players[0]
     walker = players[-1]
 
     async def share(launcher_session):
@@ -435,7 +460,37 @@ async def scenario(harness, players, session):
         # "Share my location with other players" does (private is the default, docs/pokenav-privacy.md).
         launcher_session.set_share_location(True)
     await on_worker(walker.worker, share)
-    await session.walk_to_littleroot(walker)
+    # KNOWN_ISSUES MS-3: a player stepping over a map edge is off the old map's grid for a moment (x or y -1); the games
+    # refused every snapshot holding that pose (multiplayer.c ReadInbound), so after HEARTBEAT_TIMEOUT_FRAMES (180) they
+    # dropped the link and hid every other player. While the walker crosses into Littleroot every other game is read
+    # every 20 ms: each stays linked, its snapshot age under the timeout, every other player but the walker on the field.
+    others = [p for p in players if p is not walker]
+    crossing = dict(samples=0, unlinked=0, max_heartbeat_age=0, min_others_on_field=count)
+    sampling = asyncio.Event()
+
+    async def sample_the_crossing():
+        while not sampling.is_set():
+            for p in others:
+                view = session.game_view(p)
+                crossing["samples"] += 1
+                crossing["unlinked"] += 0 if view["linked"] else 1
+                crossing["max_heartbeat_age"] = max(crossing["max_heartbeat_age"], view["heartbeat_age"])
+                crossing["min_others_on_field"] = min(crossing["min_others_on_field"],
+                                                      sum(1 for q in view["peers"] if q["activity"] == 1))
+            await asyncio.sleep(.02)
+    sampler = asyncio.create_task(sample_the_crossing())
+    try:
+        if tuple((await session.pose(walker))[2:4]) == LITTLEROOT:
+            # --crossing-only from a start in the town: north onto Route 101 first (an edge crossed too, sampled)
+            await session.walk_out_of_littleroot(walker)
+        await session.walk_to_littleroot(walker)
+    finally:
+        sampling.set()
+        await sampler
+    record("map-edge-crossing-sampled", walker=walker.slot, **crossing)
+    require(crossing["samples"] > 0 and crossing["unlinked"] == 0 and crossing["max_heartbeat_age"] < 180
+            and crossing["min_others_on_field"] >= count - 2,
+            f"a game lost its link or its other players while {walker.name} crossed the map edge: {crossing}")
     async with asyncio.timeout(20):
         while True:
             state = await session.state()
@@ -529,6 +584,8 @@ def main():
     parser.add_argument("--wine", type=Path, action="append")
     parser.add_argument("--sdl", type=Path)
     parser.add_argument("--elf", type=Path)
+    parser.add_argument("--crossing-only", action="store_true",
+                        help="only step 4 after the baseline: the map-edge crossing into Littleroot, sampled (MS-3)")
     asyncio.run(run(parser.parse_args()))
 
 

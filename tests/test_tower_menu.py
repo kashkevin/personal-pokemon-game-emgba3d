@@ -402,6 +402,37 @@ class PageTests(unittest.IsolatedAsyncioTestCase):
         await self.menu.refresh()
         self.assertEqual(self.menu.screen.status, "Floor 12: 0/2 ready")
 
+    async def test_a_duo_page_is_new_when_the_duo_or_ones_own_readiness_changes(self):
+        """KNOWN_ISSUES MS-69's Tower Duo pages (the audit of 2026-11-18, real games): the game keeps its cursor row when
+        a page refreshes, so after Accept the Team row lay under it (a second press opened the team page, a third took
+        the first Pokemon out) and after Ready the Not ready row (a second press undid it). A Duo page whose state or own
+        readiness changed is a new page: the game starts it on its first row, a name that does nothing."""
+        def joined(ready, mate_ready=False):
+            return dict(DUO_VIEWS["forming"], proposer=MATE,
+                        members=[member(MATE, "Bob", 50, 49, progression=False, ready=mate_ready),
+                                 member(ME, "Alice", 12, 11, progression=True, ready=ready)])
+        self.view = host_view(teammate=TEAMMATE, duo=DUO_VIEWS["invited, theirs"])
+        await self.open_tower()
+        await self.click("Duo: floor 12 (invited)")
+        self.assertTrue(self.menu.screen.new_page)
+        self.view = host_view(teammate=TEAMMATE, duo=joined(False))
+        await self.click("Accept: floor 12")
+        self.assertEqual(self.labels, ["Bob: Exp only", "Alice: prizes", "Team: Mudkip", "Ready", "Leave the Duo..."])
+        self.assertTrue(self.menu.screen.new_page)                  # the cursor starts on Bob's row, not on Team
+        self.assertEqual(self.menu.screen.rows[0].action, 0)
+        self.view = host_view(teammate=TEAMMATE, duo=joined(True))
+        await self.click("Ready")
+        self.assertEqual(self.labels[3], "Not ready")
+        self.assertTrue(self.menu.screen.new_page)                  # not on Not ready
+        self.view = host_view(teammate=TEAMMATE, duo=joined(True, mate_ready=True))
+        await self.menu.refresh()
+        self.assertEqual(self.labels[0], "Bob: Exp only, ready")
+        self.assertFalse(self.menu.screen.new_page)                 # the teammate's readiness keeps the cursor
+        self.view = host_view(teammate=TEAMMATE, duo=joined(False, mate_ready=True))
+        await self.click("Not ready")
+        self.assertEqual(self.labels[3], "Ready")
+        self.assertTrue(self.menu.screen.new_page)
+
     async def test_an_invitation_is_accepted_or_declined_and_an_ended_duo_says_why(self):
         self.view = host_view(teammate=TEAMMATE, duo=DUO_VIEWS["invited, theirs"])
         await self.open_tower()

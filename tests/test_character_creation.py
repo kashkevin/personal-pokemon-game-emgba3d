@@ -221,6 +221,27 @@ class RemoteEnrollmentTests(RemoteEnrollmentFixture):
         self.assertEqual(len(list((self.profile(1) / "abandoned-enrollments").iterdir())), 1)
         self.assertEqual(len(self.enrolled_sources()), 1)
 
+    async def test_a_replaced_invite_code_is_refused_at_once_with_its_reason(self):
+        """KNOWN_ISSUES NU-3's update (the audit of 2026-11-17, real launchers): a code whose sign-in the host no longer
+        knows (replaced, valid checksum) waited out the time limit and was reported as "The server did not answer in
+        time" although the host had answered and refused. The host's refusal is reported, at once."""
+        import json
+        data = json.loads(self.invitations[0].read_text())
+        data["credential"] = "ab" * 32                      # well formed, not this account's
+        stale = self.root / "stale.json"
+        stale.write_text(json.dumps(data))
+        companion_patch, spawn_patch = self.patches()
+        started = asyncio.get_running_loop().time()
+        with companion_patch, spawn_patch:
+            with self.assertRaises(CreationError) as caught:
+                async with self.context(invitation_path=stale, connection_timeout=30):
+                    self.fail("signed in with a replaced code")
+        self.assertEqual(caught.exception.code, "rejected_invalid_credentials")
+        self.assertIn("did not accept this invite", str(caught.exception))
+        self.assertLess(asyncio.get_running_loop().time() - started, 15)
+        self.assertEqual(self.enrolled_sources(), {})
+        self.assertEqual(self.children, [])
+
     async def test_an_unavailable_server_is_a_clear_error_and_creates_nothing(self):
         companion_patch, spawn_patch = self.patches()
         with companion_patch, spawn_patch:

@@ -585,7 +585,7 @@ class PlayerMenu:
         in its argument) are the same page; the Battle Tower's and the Championship's own pages are pages too."""
         page = self._page[0]
         if page == "tower":
-            return page, self._tower._page[0]
+            return (page, *self._tower.page_identity())
         if page == "championship":
             return page, self._championship._page[0]
         return (page,)

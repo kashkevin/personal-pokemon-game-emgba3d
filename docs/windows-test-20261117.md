@@ -26,7 +26,8 @@ When something goes wrong: note the time and what you did, press **F12** in the 
    certutil -hashfile "%USERPROFILE%\Downloads\EmeraldTogether-Windows-Installer\EmeraldTogether-Setup-Native-3D-CI-479.exe" SHA256
    ```
 
-   The line it prints must be `(filled in when run 479 finishes)`. If not, stop and tell me.
+   The second line it prints must be `36269334652c6ddfceb5b2232c5a2f7b280883b06a47c22c80d968459fbbccd7` (the file is
+   59,062,794 bytes). If not, stop and tell me.
 5. Copy the exe to each PC you test on (USB stick or a shared folder).
 6. The installer is not signed: Windows may say "Windows protected your PC". Click **More info** > **Run anyway**.
 
@@ -128,7 +129,9 @@ it, such a pad worked only in the menu):
 1. PC 1: **Host World** > choose a world > open it to friends. It shows an invite code: send it to PC 2 (a message,
    a USB stick).
 2. PC 2: **Join Friend** > join a new one with an invite code > paste it > choose a character > join.
-3. Both: you see each other walk; **PLAYERS** lists the other.
+3. Both: you see each other walk; **PLAYERS** lists the other. PC 2: in the launcher tick "Share my location with other
+   players", then walk into a town. PC 1: **START > POKENAV > World > Players and weather** names that town (for
+   example LITTLEROOT TOWN), never "Area" and two numbers (KNOWN_ISSUES MS-5).
 4. A trade (PLAYERS > the other > trade): the Pokemon arrive on both sides; both save; reopen: still traded.
 5. A battle (PLAYERS > the other > challenge): it runs to the end; both back on the field.
 6. A co-op battle (a Gym battle together, or the Tower Duo): in it choose **GIVE UP**: it first asks "Giving up ends

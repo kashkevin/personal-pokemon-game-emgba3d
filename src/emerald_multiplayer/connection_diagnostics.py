@@ -241,6 +241,22 @@ EXPLANATIONS = {
 CODES = tuple(EXPLANATIONS)
 
 
+def _certificate_refusal(pem, world_id):
+    """Which refusal a pinned certificate that failed its own check is: another world's (its name is not the invite's
+    world: the code names one world and the host serves another - "That is not the world from your invite") or this
+    world's own, out of its dates or damaged (CERTIFICATE_INVALID). Every failure was the second (the audit of
+    2026-11-17: a code naming another world was told to check the PC's date and time)."""
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        names = x509.load_pem_x509_certificate(pem.encode("ascii")).subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    except Exception:                                                  # noqa: BLE001 - unreadable: the certificate's problem
+        return CERTIFICATE_INVALID
+    if len(names) == 1 and names[0].value != "Emerald world " + str(world_id):
+        return WRONG_WORLD
+    return CERTIFICATE_INVALID
+
+
 def describe(code, *, port=None):
     """The explanation for a code (an unknown code gets the generic refusal text)."""
     explanation = EXPLANATIONS.get(code, EXPLANATIONS[REJECTED])
@@ -448,7 +464,7 @@ async def check_server(address, port, *, certificate_sha256, world_id, build_id=
         try:
             _certificate(pem, world_id, certificate_sha256)
         except InvitationError as error:
-            return result(CERTIFICATE_INVALID, detail=error.code, **common)
+            return result(_certificate_refusal(pem, world_id), detail=error.code, **common)
         detail = "certificate verified"
         if build_id is not None and ruleset_id is not None:
             code, detail = await _version_probe(reader, writer, build_id, ruleset_id, max(deadline - loop.time(), .5))

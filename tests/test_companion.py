@@ -98,6 +98,17 @@ class ConfigValidationTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_a_saves_wait_for_each_answer_outlasts_a_stall_the_link_survives(self):
+        """The audit of 2026-11-17 (a real friend behind a stalled proxy): each answer of a save waited 5 s, the link a write
+        stall of drain_timeout (10 s, KNOWN_ISSUES MS-124), so a 5 s stall at a save's start kept the link and failed the
+        save into recovery. A save now waits longer than the link's stall and less than its dead-host limit."""
+        import inspect
+        from emerald_multiplayer.companion import CHECKPOINT_ANSWER_SECONDS, Companion
+        for method in (Companion.checkpoint_rpc, Companion.checkpoint_pipeline):
+            self.assertEqual(inspect.signature(method).parameters["timeout"].default, CHECKPOINT_ANSWER_SECONDS)
+        self.assertGreater(CHECKPOINT_ANSWER_SECONDS, self.config.drain_timeout)
+        self.assertLess(CHECKPOINT_ANSWER_SECONDS, self.config.remote_timeout)
+
     def test_actual_file_hash_required_and_manifest_bounds(self):
         self.assertEqual(verify_rom_manifest(self.rom, self.manifest)[0], self.config.build_id)
         self.rom.write_bytes(b"different")

@@ -145,10 +145,15 @@ from emerald_multiplayer.trade_mail import MAIL_OFFSET, MAIL_SIZE  # noqa: E402
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
 from qualify_launcher_session import inspect_closed_head  # noqa: E402
 import trade_eggs_mail_evidence as evidence  # noqa: E402
+from audit_trade_checks import (EXPIRE_EXIT, HOLD_COMMANDS, PAUSE_KEYS, PROXY_SAVE_STALL, PROXY_STOP_BEFORE_CHUNKS,  # noqa: E402
+                                WATCH_BRIDGE, WATCH_WINDOW, ProxyStallMixin, TradeAuditMixin)
+from audit_spawn_checks import SpawnLeaveMixin  # noqa: E402
+from audit_restart_checks import RestartLookMixin  # noqa: E402
 
 PLAYER_NAMES = ("New Host", "New Friend 1", "New Friend 2", "New Friend 3")
 SCENARIOS = ("lobby", "mixed", "busy", "trade", "battle-trade", "trade-evolve", "trade-forms", "trade-mail", "trade-egg",
-             "give-up", "give-up-mid-turn", "give-up-knockout", "give-up-switch", "give-up-2v2")
+             "give-up", "give-up-mid-turn", "give-up-knockout", "give-up-switch", "give-up-2v2", "trade-failures",
+             "proxy-stall", "spawn-leave", "restart-look")
 # The give-ups whose --source saves hold the parties their battle needs (make_tower_saves.py giveup-ko-*, giveup-switch-*)
 GIVE_UP_HOLDING = ("give-up-knockout", "give-up-switch")
 # Scenarios whose --source saves already hold Pokemon (no claims): their parties are the sources' own.
@@ -220,7 +225,8 @@ def read_at(probe, address, size):
         return memory.read(size)
 
 
-class NewcomersProof(SoftResetProof, ThreePlayerProof):
+class NewcomersProof(TradeAuditMixin, ProxyStallMixin, SpawnLeaveMixin, RestartLookMixin, SoftResetProof,
+                     ThreePlayerProof):
     """The newcomer proof's claims, the soft reset proof's RESET page and the three-player proof's drawing checks, for
     two to four players."""
 
@@ -675,7 +681,7 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
 
     # Trades and resets --------------------------------------------------------------------------------------------
     async def trade_between(self, current, probes, record, offerer, answerer, while_open=None, freeze=None,
-                            labels=(None, None), freeze_when="first"):
+                            labels=(None, None), freeze_when="first", hold=None):
         """The offerer offers the answerer a trade from PLAYERS; `while_open` runs while the offer waits; the answerer
         picks its Pokemon from Pending trade (each the first one, or the rows `labels` names: the offerer's, the
         answerer's); both confirm; the host applies it (each save two revisions on): "applied". `freeze` (--freeze
@@ -712,6 +718,8 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         prepared[answerer] = round(time.monotonic() - chosen, 1)
         record("trade-offers-chosen", offered={self.harness.names[n]: offered[n] for n in pair},
                window_seconds={self.harness.names[n]: prepared[n] for n in pair})
+        if hold is not None:
+            await hold()            # --hold-commands (audit_trade_checks.py): both windows open on the offers
         started, confirmed = time.monotonic(), set()
         mashers = {}
         freezing, calm = None, 0
@@ -1027,6 +1035,14 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             parties = await self.heads(current, host)
             revisions = [(await self.launcher(w))["revision"] + 1 for w in current]
             return dict(parties=parties, revisions=revisions)
+        if self.scenario == "trade-failures":
+            return await self.trade_failures(current, probes, record)      # audit_trade_checks.py
+        if self.scenario == "proxy-stall":
+            return await self.proxy_stall(current, probes, symbols, record)    # audit_trade_checks.py
+        if self.scenario == "spawn-leave":
+            return await self.spawn_leave(current, probes, games, record)      # audit_spawn_checks.py
+        if self.scenario == "restart-look":
+            return await self.restart_look(current, probes, games, symbols, record)    # audit_restart_checks.py
         canonical = await self.heads(current, host)
         record("linked-with-no-pokemon", games=[p.party_now() for p in probes], canonical=canonical)
         require(all(p.party_now()["count"] == 0 for p in probes) and all(c["count"] == 0 for c in canonical),
@@ -1617,8 +1633,12 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             suffix = "" if ROUNDS[0] == 1 else f"-{round_}"
             if symbols is not None:
                 await self.challenge_1v1(self.harness.host, probes, 0, 1)
+                battle_freeze = self.freeze_for("battle", round_, record)
+                if PAUSE_KEYS[0] is not None and round_ == 1:
+                    async def battle_freeze(n=PAUSE_KEYS[0]):
+                        await self.pause_keys(n, record, "battle")
                 await self.play(current, probes, symbols, record, (0, 1), "1v1", "rival-1v1" + suffix,
-                                freeze=self.freeze_for("battle", round_, record))
+                                freeze=battle_freeze)
                 if round_ == 1:
                     canonical = await self.heads(current, self.harness.host)
             if round_ == 1:
@@ -1626,8 +1646,17 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
             for offerer, answerer, label in ((0, 1, "traded"), (1, 0, "traded-back")):
                 freeze = self.freeze_for("trade", round_, record) if label == "traded" else None
                 expected = [serials[1], serials[0]] if label == "traded" else serials
+                hold = None
+                if PAUSE_KEYS[0] is not None and label == "traded" and round_ == 1:
+                    async def hold(n=PAUSE_KEYS[0]):
+                        await self.pause_keys(n, record, "trade")
+                if HOLD_COMMANDS[0] is not None and label == "traded-back" and round_ == 1:
+                    async def hold(n=HOLD_COMMANDS[0][0], seconds=HOLD_COMMANDS[0][1]):
+                        await self.hold_commands(n, seconds, record, "game-hold-without-commands")
                 while True:
-                    outcome = await self.trade_between(current, probes, record, offerer, answerer, freeze=freeze)
+                    outcome = await self.trade_between(current, probes, record, offerer, answerer, freeze=freeze,
+                                                       hold=hold)
+                    hold = None
                     if outcome == "interrupted":
                         for n in self.interrupted:
                             await self.resolve_interrupted_trade(n, current, probes, record)
@@ -1683,8 +1712,11 @@ class NewcomersProof(SoftResetProof, ThreePlayerProof):
         if kind == "worker":
             loop = self.current[slot]._loop
             require(loop is not None, f"{name}'s worker has no event loop to freeze")
+            watching = [asyncio.create_task(watch(slot, seconds, record, where))
+                        for on, watch in ((WATCH_WINDOW[0], self.watch_windows), (WATCH_BRIDGE[0], self.watch_bridge)) if on]
             loop.call_soon_threadsafe(time.sleep, seconds)
             await asyncio.sleep(seconds)
+            await asyncio.gather(*watching)
         elif FREEZE_AT_PEEK[0] and where.startswith("battle"):
             started = await self.freeze_at_peek(slot, seconds, record)
         else:
@@ -1956,6 +1988,18 @@ async def run(args):
     LATENCY_MS[0], HOLD[0], DISK_MS[0], REMOTE_ONLY[0] = args.latency_ms, not args.no_hold, args.disk_ms, args.remote_only
     LATENCY_ALL[0], WALK[0], MASH[0] = args.latency_all, args.walk_while_preparing, args.mash_after_confirm
     STRAY[0] = args.stray_presses
+    EXPIRE_EXIT[0], WATCH_WINDOW[0], WATCH_BRIDGE[0] = args.expire_exit, args.watch_window, args.watch_bridge
+    PAUSE_KEYS[0] = args.pause_keys
+    if args.max_runtime_file_mb:
+        # The launcher's runtime bundle refuses a file over 128 MiB (player_runtime._MAX_FILE); the 3D test build with
+        # its debug sections is 155 MiB. The limit only: the game file runs as built.
+        from emerald_multiplayer import player_runtime
+        player_runtime._MAX_FILE = args.max_runtime_file_mb * 1024 * 1024
+    PROXY_STOP_BEFORE_CHUNKS[0] = args.proxy_stop_before_chunks
+    PROXY_SAVE_STALL[0] = args.proxy_save_stall
+    if args.hold_commands:
+        player, seconds = args.hold_commands.split(":")
+        HOLD_COMMANDS[0] = (int(player), float(seconds))
     ROUGH[0] = (args.jitter_ms, args.stall_every, args.stall_ms)
     ROUNDS[0], SAMPLE[0], TRACE[0] = args.rounds, args.sample_every, args.trace_memory
     for spec in args.freeze:
@@ -1981,7 +2025,8 @@ async def run(args):
         battle_session.GAME_ANSWER_SECONDS = args.game_answer_seconds
     count = len(args.source)
     require(2 <= count <= 4, "two to four sources (short-introduction saves)")
-    two = ("trade", "battle-trade", *HOLDING, *(name for name in GIVE_UPS if name != "give-up-2v2"))
+    two = ("trade", "battle-trade", "trade-failures", "proxy-stall", "spawn-leave", "restart-look", *HOLDING,
+           *(name for name in GIVE_UPS if name != "give-up-2v2"))
     require(args.scenario == "lobby" or count == 4 or (args.scenario in two and count == 2),
             f"--scenario {args.scenario} needs four players (trade: two)")
     require(args.scenario != "give-up-2v2" or count == 4, "--scenario give-up-2v2 needs four players")
@@ -1997,7 +2042,8 @@ async def run(args):
         # the test build's breed log (its party's and PC's Eggs and their cycles, its banners) in each game's own
         # TEST_LOG (NewcomersProof.adopt)
         environment["PKMN_TEST_BREED_LOG"] = "1"
-    if args.scenario in ("trade-mail", "trade-egg", *GIVE_UP_HOLDING):
+    if args.scenario in ("trade-mail", "trade-egg", "trade-failures", "proxy-stall", "spawn-leave", "restart-look",
+                         *GIVE_UP_HOLDING):
         # the sources' own parties (make_tower_saves.py's trade-mail-a/-b, trade-egg-a/-b, giveup-ko-a/-b,
         # giveup-switch-a/-b)
         counts = tuple(inspect_flash(Path(p).read_bytes()).metadata.party_count for p in args.source)
@@ -2008,10 +2054,19 @@ async def run(args):
 
     def adopt(harness):
         proof.adopt(harness)
+        if args.scenario == "proxy-stall":
+            proof.install_proxy(harness)        # audit_trade_checks.py: before any launcher connects
         if args.key_hold is not None:
             # --key-hold: each key held this long (a loaded PC's game runs few frames a second, and a press shorter
             # than its frame can come and go between two of them unseen)
             harness.hold = harness.evidence["key_hold_seconds"] = args.key_hold
+    try:
+        await _launcher_proof(args, count, counts, proof, adopt, environment)
+    finally:
+        proof.stop_proxies()
+
+
+async def _launcher_proof(args, count, counts, proof, adopt, environment):
     await launcher_proof(args, names=PLAYER_NAMES[:count], sources=args.source, party_counts=counts,
                          match=proof.match, version="Native newcomers proof",
                          settings=LIGHT_3D_SETTINGS if args.light_3d else "windowScale=2\n",
@@ -2098,6 +2153,25 @@ def main():
                         help="with --freeze game:...:battle: stop the game at the first moment after the 20 s that its "
                              "launcher has a PEEK out to it and holds no host command (KNOWN_ISSUES MS-165's update of "
                              "2026-11-06: the window Windows run 349 met by chance)")
+    parser.add_argument("--expire-exit", action="store_true",
+                        help="trade-failures: also an offer the friend never answers, ended by the host's time limit")
+    parser.add_argument("--hold-commands", default=None, metavar="PLAYER:SECONDS",
+                        help="trade: in the second trade, once both windows show the offers, that player's launcher "
+                             "sends its game no command for SECONDS; the game's trade hold is read meanwhile")
+    parser.add_argument("--watch-window", action="store_true",
+                        help="with --freeze worker:...: when each game's trade window closed during the freeze")
+    parser.add_argument("--pause-keys", type=int, default=None, metavar="PLAYER",
+                        help="battle-trade: Ctrl+P, F5 and F9 in that player's game 20 s into the first battle and while "
+                             "the first trade's windows show the offers (KNOWN_ISSUES MS-122)")
+    parser.add_argument("--max-runtime-file-mb", type=int, default=0,
+                        help="the launcher's runtime bundle's per-file limit (128 MiB) raised, for a test build that big")
+    parser.add_argument("--proxy-save-stall", type=float, default=3.0,
+                        help="proxy-stall: seconds the proxy stays stopped during the friend's save upload (a save's "
+                             "answers may take up to companion.CHECKPOINT_ANSWER_SECONDS, 15 s)")
+    parser.add_argument("--proxy-stop-before-chunks", action="store_true",
+                        help="proxy-stall: the proxy is stopped before the save's first chunk is written (not once it went)")
+    parser.add_argument("--watch-bridge", action="store_true",
+                        help="with --freeze worker:...: the frozen player's game's bridge queue to its companion")
     args = parser.parse_args()
     if args.format is None:
         args.format = "2v2" if args.scenario in ("mixed", "give-up-2v2") else "1v1v1v1"

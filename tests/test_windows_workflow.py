@@ -633,7 +633,7 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn('- {name: duo-give-up, scenario: duo-give-up, a: tower-forfeit-a, b: tower-forfeit-b, '
                       'extra: "--party-counts 6 6 --give-up 2"}', tower)
         tower_proof = (ROOT / "scripts" / "multiplayer" / "native_launcher_tower_proof.py").read_text(encoding="utf-8")
-        self.assertIn('"championship", "duo-give-up"),', tower_proof)
+        self.assertIn('"championship", "duo-give-up", "clock-jump", "held-items", "milestone-full"),', tower_proof)
         self.assertIn('parser.add_argument("--give-up"', tower_proof)
 
     def test_a_battle_and_trades_between_players_run_in_the_3d_game_on_windows(self):

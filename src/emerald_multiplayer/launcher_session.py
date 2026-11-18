@@ -2018,27 +2018,29 @@ class LauncherSession:
                 result = await asyncio.wait_for(coordinator.cancel(automatic=True), 120)
                 break
             except asyncio.CancelledError:
-                say(f"Trade stopped; keep game open|Code: {reason}")
+                say(f"Trade stopped: keep game open|Code: {reason}")
                 raise error from None
             except Exception as failure:
                 passing = (isinstance(failure, TimeoutError) or isinstance(failure, ConnectionError)
                            or getattr(failure, "code", None) in {"rom_busy", "rom_unsafe"})
                 if attempt == TRADE_SETTLE_ATTEMPTS or not passing or not c.connected:
-                    say(f"Trade stopped; keep game open|Code: {reason}")
+                    say(f"Trade stopped: keep game open|Code: {reason}")
                     raise error from None
                 if attempt == 1:
                     say(f"Ending the trade: please wait|Code: {reason}")
             await asyncio.sleep(TRADE_SETTLE_RETRY_SECONDS)
         trade_menu._completion(result)
         if isinstance(result, dict) and result.get("state") == "aborted":
-            menu_session.menu.notice("Trade cancelled: nothing changed")
+            # The game has no ";" and the PLAYERS status line 31 characters (player_menu.notice): the audit of 2026-11-17
+            # saw "Trade cancelled no change." and "Trade cancelled: nothing change".
+            menu_session.menu.notice("Trade cancelled: no change")
             # A trade the host had already ended (it timed out, the friend cancelled or lost connection) says so;
             # this side's own error keeps its code.
             ended = await trade_menu.fetch_end_reason() if reason == "trade_aborted" else None
             if ended in TRADE_END_BANNERS and ended != "you_cancelled":
                 say(f"{TRADE_END_BANNERS[ended]}|Code: {reason}")
             else:
-                say(f"Trade cancelled; no change.|Code: {reason}")
+                say(f"Trade cancelled: no change.|Code: {reason}")
         elif isinstance(result, dict) and result.get("state") == "applied":
             self._trade_outcome_banner(trade_menu, result)
         return result

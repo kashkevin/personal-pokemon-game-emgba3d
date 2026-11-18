@@ -48,6 +48,7 @@ class NativeEnrollmentFixture:
         self.hook = None
         self.unsafe_once = False
         self.lose_end = False
+        self.personalities = None   # the exported save's Pokemon: the default source's unless a test enrolls another
 
     def ownership_status(self):
         if self.grant is None:
@@ -80,7 +81,8 @@ class NativeEnrollmentFixture:
             self.test.assertTrue((self.test.private / (self.grant.grant_id + ".grant.json")).exists())
             data = self.ownership_status()
         elif control.opcode == Opcode.BEGIN_EXPORT:
-            self.payload = owned_flash(self.grant, next_serial=self.grant.start+1)
+            chosen = {} if self.personalities is None else dict(personalities=self.personalities)
+            self.payload = owned_flash(self.grant, next_serial=self.grant.start+1, **chosen)
             parsed = inspect_flash(self.payload, save_profile=OWNERSHIP_PROFILE)
             sector = struct.unpack_from("<H", self.payload, parsed.metadata.bank*14*4096+4084)[0]
             data = struct.pack("<II", parsed.metadata.counter, (-sector) % 14) + bytes(32)

@@ -10,8 +10,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 import hashlib
+import json
 import os
 from pathlib import Path
+import re
 import time
 
 from .battle_journal import path_present
@@ -28,6 +30,10 @@ from .trade_storage import TradeCheckpointStore
 
 
 PREVIOUS = "previous-saves"
+# An allocation the host acknowledged before the game was stopped (live_checkpoint._prepare_ownership's receipt): an unused
+# one only burns its IDs, so it does not by itself mean that an enrollment attempt went further.
+GRANT_RECEIPT = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.grant\.json$")
+SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 UNSAFE_TO_SET_ASIDE = ("pending-trade.json", "pending-battle.json", "pending-battle-admission.json", "pending-emergency.json")
 
 
@@ -144,10 +150,12 @@ class EnrollmentRuntime:
 
     def __init__(self, companion, bundle, private_directory, save_path, approval, *, launch_root=None,
                  restart_abandoned=False):
-        """``restart_abandoned``: an earlier attempt of this exact approval that ended before its game reached the first
-        safe place (the game crashed or was closed: no grant, export, trade or battle journal, and the server has no
-        character) is set aside into ``abandoned-enrollments/`` - kept, never deleted - and enrollment starts again from
-        the approved source. Without it such an attempt stays "recovery_required" (the launcher's explicit setup)."""
+        """``restart_abandoned``: an earlier attempt at this place that ended before the world saved the character (the
+        game crashed or was closed: no export, trade or battle journal - at most the host's acknowledged allocations - and
+        the server holds nothing of it; this approval's attempt, or another character's when a new one takes the place
+        over) is set aside into ``abandoned-enrollments/`` - kept, never deleted - and enrollment starts again from the
+        approved source (``_abandoned_attempt``). Without it such an attempt stays "recovery_required" (the launcher's
+        explicit setup)."""
         self.companion, self.bundle, self.approval = companion, bundle, approval
         self.restart_abandoned = restart_abandoned is True
         self.directory = Path(private_directory).resolve()
@@ -195,10 +203,15 @@ class EnrollmentRuntime:
             raise EnrollmentRuntimeError("recovery_required", "existing enrollment, save or journal requires closed recovery")
 
     def _abandoned_attempt(self, gate):
-        """Whether the profile holds only an abandoned attempt of this exact approval (see ``restart_abandoned``): its own
-        intent, byte for byte; its source copy (or none yet); the game's copy of the source (or none); the save lease's
-        lock and the pinned host certificate. Anything else - a grant, an export, a trade, a battle, a checkpoint sidecar,
-        a completion receipt, an unknown file - means the attempt went further, and closed recovery decides."""
+        """Whether the profile holds only an abandoned attempt (see ``restart_abandoned``): its intent - this approval's,
+        byte for byte, or another source's for the same world, place, build, rules and base revision (a new character
+        taking the place over, shell_app's "takes it over"), whole with its own source copy; its source copy (or none
+        yet); the game's copy of the source (or none); the allocation receipts the host acknowledged before the game was
+        stopped (GRANT_RECEIPT); the save lease's lock and the pinned host certificate. Anything else - an export, a
+        trade, a battle, a checkpoint sidecar, a completion receipt, an unknown file - means the attempt went further,
+        and closed recovery decides. The caller sets it aside only while the host still holds nothing of it (its head the
+        base revision, no recovery pending). An allocation receipt alone kept every later setup of the place refused
+        for good (KNOWN_ISSUES NU-1's update of 2026-11-18: the game ended just after reaching the field)."""
         if not self.restart_abandoned or not path_present(self.pending_path):
             return False
         if any(path_present(path) for path in (gate.export_path, gate.trade_path, self.receipt_path)):
@@ -208,21 +221,39 @@ class EnrollmentRuntime:
         allowed = {self.pending_path.name, self.source_copy.name, self.save_path.name,
                    self.save_path.name + ".mirror.lock", self.ABANDONED, "invitation.json", PREVIOUS}
         for entry in self.directory.iterdir():
-            if entry.name not in allowed and not (entry.name.startswith("host-") and entry.name.endswith(".pem")):
-                return False
+            if entry.name in allowed or (entry.name.startswith("host-") and entry.name.endswith(".pem")):
+                continue
+            if GRANT_RECEIPT.match(entry.name) and entry.is_file() and not entry.is_symlink():
+                continue
+            return False
         try:
             with self.pending_path.open("rb") as source:
-                if source.read(4097) != _json_bytes(self._intent()):
+                raw = source.read(4097)
+            mine = self._intent()
+            if raw == _json_bytes(mine):
+                source_sha256 = self.approval.source_sha256
+            else:
+                intent = json.loads(raw) if len(raw) <= 4096 else None
+                if (type(intent) is not dict or set(intent) != set(mine)
+                        or any(intent[key] != mine[key] for key in mine if key != "source_sha256")
+                        or type(intent["source_sha256"]) is not str or not SHA256_HEX.match(intent["source_sha256"])
+                        or raw != _json_bytes(intent)):
                     return False
-            if path_present(self.source_copy) and _source_bytes(self.source_copy) != self.approval.payload:
+                source_sha256 = intent["source_sha256"]
+            if path_present(self.source_copy) and hashlib.sha256(_source_bytes(self.source_copy)).hexdigest() != source_sha256:
                 return False
         except (OSError, ValueError):
             return False
         return True
 
+    def _grant_receipts(self):
+        return [entry for entry in self.directory.iterdir()
+                if GRANT_RECEIPT.match(entry.name) and entry.is_file() and not entry.is_symlink()]
+
     def _set_aside_attempt(self):
-        """Move the abandoned attempt into abandoned-enrollments/<UTC time>/: the game's copy, then the source copy, then
-        the intent last, so an interruption part-way leaves an attempt this same check accepts again."""
+        """Move the abandoned attempt into abandoned-enrollments/<UTC time>/: the game's copy, its allocation receipts, then
+        the source copy, then the intent last, so an interruption part-way leaves an attempt this same check accepts
+        again."""
         root = self.directory / self.ABANDONED
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         for n in range(100):
@@ -234,7 +265,7 @@ class EnrollmentRuntime:
                 continue
         else:
             raise EnrollmentRuntimeError("recovery_required", "no place to keep the abandoned enrollment attempt")
-        for path in (self.save_path, self.source_copy, self.pending_path):
+        for path in (self.save_path, *self._grant_receipts(), self.source_copy, self.pending_path):
             if path_present(path):
                 replace_file(path, folder / path.name)
         _sync_directory(folder)

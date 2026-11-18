@@ -222,6 +222,14 @@ class CheckServerTests(unittest.IsolatedAsyncioTestCase):
             result = await check_server("127.0.0.1", fake.port, **self.options())
         self.assertEqual(result.code, "certificate_invalid")
 
+    async def test_a_code_naming_another_world_with_this_hosts_pin_is_wrong_world_not_an_expired_certificate(self):
+        """The audit of 2026-11-17 (real launchers): such a code was told the certificate had expired or was damaged and to
+        check the PC's date and time. The certificate is this host's, its name another world's: the wrong world."""
+        fake = await self.fake(on_hello="credentials_required")
+        result = await check_server("127.0.0.1", fake.port, **self.options(world_id=self.other.world_id))
+        self.assertEqual(result.code, "wrong_world")
+        self.assertEqual(fake.hellos, [])
+
     async def test_a_non_tls_service_is_tls_failed(self):
         fake = await self.fake(tls=False)
         result = await check_server("127.0.0.1", fake.port, **self.options())

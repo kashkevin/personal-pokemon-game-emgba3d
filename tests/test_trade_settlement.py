@@ -77,8 +77,8 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         self.coordinator.trade_path.write_text("{}")
         self.assertEqual(await self.settle(), self.outcome)
         self.assertEqual(self.abandoned, [True])            # the dead dialog queue is dropped
-        self.assertEqual(self.notices, ["Trade cancelled: nothing changed"])
-        self.assertEqual(self.banners, ["Trade cancelled; no change.|Code: ValueError"])
+        self.assertEqual(self.notices, ["Trade cancelled: no change"])
+        self.assertEqual(self.banners, ["Trade cancelled: no change.|Code: ValueError"])
         self.outcome = {"state": "applied", "checkpoint": {"revision": 3}}   # the host had committed: applied
         self.notices.clear()
         self.banners.clear()
@@ -97,7 +97,7 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(raised.exception, original)
         self.assertEqual(self.automatic, [True, True, True])    # tried TRADE_SETTLE_ATTEMPTS times
         self.assertEqual(self.banners, ["Ending the trade: please wait|Code: ValueError",
-                                        "Trade stopped; keep game open|Code: ValueError"])
+                                        "Trade stopped: keep game open|Code: ValueError"])
         self.companion.connected = False                    # offline: cold start recovers it after a restart
         with self.assertRaises(ValueError):
             await self.settle(original)
@@ -114,7 +114,7 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await self.settle(), self.outcome)
         self.assertEqual(self.automatic, [True, True, True])
         self.assertEqual(self.banners, ["Ending the trade: please wait|Code: ValueError",
-                                        "Trade cancelled; no change.|Code: ValueError"])
+                                        "Trade cancelled: no change.|Code: ValueError"])
         # A failure that another try cannot change (the journal or the game's hold disagree) is not tried again.
         self.automatic.clear()
         self.banners.clear()
@@ -122,7 +122,7 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError), patch("emerald_multiplayer.launcher_session.TRADE_SETTLE_RETRY_SECONDS", 0):
             await self.settle()
         self.assertEqual(self.automatic, [True])
-        self.assertEqual(self.banners, ["Trade stopped; keep game open|Code: ValueError"])
+        self.assertEqual(self.banners, ["Trade stopped: keep game open|Code: ValueError"])
 
     def test_every_finished_trade_says_how_it_ended(self):
         # After both confirmed, the trade window closes before the import: the banner says the outcome (it used to say
@@ -163,7 +163,7 @@ class TradeSettlementTests(unittest.IsolatedAsyncioTestCase):
         # This side's own error keeps the generic line and its code.
         self.banners.clear()
         await self.settle(TradeError("revision_conflict", "a participant's checkpoint changed"))
-        self.assertEqual(self.banners, ["Trade cancelled; no change.|Code: revision_conflict"])
+        self.assertEqual(self.banners, ["Trade cancelled: no change.|Code: revision_conflict"])
 
 
 if __name__ == "__main__":

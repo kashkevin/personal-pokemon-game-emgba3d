@@ -30,6 +30,7 @@ _MESSAGES = {
     "world_invalid": "The private host world could not be verified.",
     "invalid_endpoint": "The world's network address is not a numeric address this PC can use.",
     "world_active": "Close the running host before setting up a character.",
+    "port_in_use": "This world's port is already in use on this PC: close the running host, or the other program using that port, then try again.",
     "trade_effect_policy_required": "Select a Gen 6 trade friendship policy for this world before creating or upgrading it.",
     "trade_effect_migration_required": "Close the world, select its trade friendship policy and use Upgrade world features first.",
     "trade_native_replay_failed": "Native trade history verification could not finish; existing recovery files are retained.",
@@ -307,7 +308,10 @@ async def host_enrollment(installation, private_root, *, world_directory, slot,
             await server.start(bind_address, host.port, allow_lan=True,
                                public=public, tls=host.server_tls)
         except OSError:
-            raise LauncherSetupError("world_active") from None
+            # The world's own store is free (its owner lock was taken above): something else holds the port - this
+            # world hosted by another program, or any program at all (the audit of 2026-11-17 found any program on 7777
+            # blamed on "the running host").
+            raise LauncherSetupError("port_in_use") from None
         publish("approving", "source_approval")
         if mode == "transfer":
             from .enrollment_runtime import approve_transfer_source, set_aside_previous_saves

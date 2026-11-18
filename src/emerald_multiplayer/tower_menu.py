@@ -91,6 +91,22 @@ class TowerMenu:
     def _actor(self):
         return self.companion.config.player_id
 
+    def page_identity(self):
+        """Which page a screen is of (KNOWN_ISSUES MS-55: a new page starts the game's cursor on its first row). The
+        Duo's page is a new page whenever the Duo's state or this player's own readiness changes, so the cursor goes
+        back to the first row - a player's name, which does nothing: the game kept its row, and a second press after
+        Accept met the Team row (the team page, where a third press took the first Pokemon out), one after Ready met
+        Not ready (KNOWN_ISSUES MS-69's Tower Duo pages, the audit of 2026-11-18 in real games). The teammate's
+        readiness and the page's own refreshes keep the cursor where it is."""
+        page = self._page[0]
+        if page != "duo":
+            return (page,)
+        duo = (self._view or {}).get("duo")
+        if duo is None or duo.get("state") == "ended":
+            return (page, None)
+        mine = next((member for member in duo.get("members", ()) if member.get("player_id") == self._actor), None)
+        return (page, duo.get("state"), bool(mine and mine.get("ready")))
+
     # ------------------------------------------------------------------ host
     async def refresh(self):
         binding = self._session()

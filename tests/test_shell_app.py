@@ -568,6 +568,71 @@ class HostWorldTests(unittest.TestCase):
         self.assertIn("(1 friend through it)", seen["notes"])
         self.assertEqual(ui.windows[-1][:2], app3.menu_window)
 
+    def test_the_session_windows_status_moves_on_from_saving_when_the_session_reports_the_save(self):
+        """The audit of 2026-11-17 (real launchers, a full disk): after Save now the status line kept saying "Saving..."
+        until another row was chosen, hiding "saved" and the disk-full texts of KNOWN_ISSUES MS-214 and MS-215. The answer to
+        a row stands until the session's status moves on; a refusal stays while the status stays the same."""
+        from emerald_multiplayer.launcher_gui import UiEvent, status_text
+        from emerald_multiplayer.shell_app import ShellApp
+        from emerald_multiplayer.shell_protocol import ScriptedShell
+        world = World(self)
+        app = make_world(self, world)
+        (entry,) = app.registry.entries()
+
+        def status(code):
+            return UiEvent("status", code, "running", True, save_available=True, is_host=True, connected=True)
+
+        class Manual(FakeWorker):
+            def __init__(self, answers):
+                super().__init__()
+                self.answers = list(answers)
+
+            def start(self, request):
+                self.requests.append(request)
+                self.events.put(status("running"))
+                return True
+
+            def request_save(self):
+                self.saves += 1
+                accepted, codes = self.answers.pop(0)
+                for code in codes:                     # what the session then reports
+                    self.events.put(status(code))
+                return accepted
+
+        for answers, expected in (
+                ([(True, ["saving", "saved"])], [status_text("saved")]),
+                ([(True, ["saving", "save_local_storage"])], [status_text("save_local_storage")]),
+                # refused, and only the same status again (the launcher's poll): the refusal stays
+                ([(False, ["running"])], ["Saving is not available right now."]),
+                # accepted, and nothing reported yet: "Saving..." until the session says more
+                ([(True, [])], ["Saving..."])):
+            with self.subTest(answers=answers):
+                worker = Manual(answers)
+                seen = []
+                state = {"hosted": False}
+
+                def responder(screen, waiting=False):
+                    if screen.id == "session":
+                        seen.append(screen.status[1])
+                        if len(seen) == 1:
+                            return select("save")
+                        worker.events.put(UiEvent("complete", "game_closed"))
+                        return None
+                    if screen.id == "world":
+                        state["hosted"] = True
+                        return select("host")
+                    if screen.id == "busy" and waiting:
+                        return None
+                    return {"main": select("host") if not state["hosted"] else select("exit"),
+                            "host_list": select(entry.world_id) if not state["hosted"] else BACK,
+                            "bring_character": select("go")}.get(screen.id) or self.fail(f"unexpected {screen.id}")
+                ui = ScriptedShell(responder)
+                app3 = ShellApp(world.installation, world.private, ui, worker=worker, lan=LAN, graphics_gate=lambda: "3d",
+                                version="t", register=fake_register([]), drafter=fake_drafter([]))
+                app3.run()
+                self.assertEqual(worker.saves, 1)
+                self.assertEqual(seen[1:2], expected)
+
     def test_the_session_window_offers_location_sharing_off_by_default_and_follows_the_game(self):
         # docs/pokenav-privacy.md: the launcher's location choice is the same one as the game's PokeNav toggle.
         from emerald_multiplayer.launcher_gui import UiEvent

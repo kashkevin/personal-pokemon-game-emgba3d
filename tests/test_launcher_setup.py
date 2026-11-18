@@ -218,6 +218,24 @@ class LauncherSetupTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.profile(0).exists())
         self.assertEqual(self.source.read_bytes(), self.original)
 
+    async def test_another_program_on_the_worlds_port_is_named_as_such(self):
+        """The audit of 2026-11-17 (real launchers): any program listening on the world's port made setup say "Close the
+        running host" although no host ran."""
+        with socket.socket() as squatter:
+            squatter.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+            squatter.bind(("127.0.0.1", self.port))
+            squatter.listen()
+            companion_patch, spawn_patch = self.fixture()
+            with companion_patch, spawn_patch:
+                with self.assertRaises(LauncherSetupError) as caught:
+                    async with self.context():
+                        self.fail("set up a character with the world's port taken")
+        self.assertEqual(caught.exception.code, "port_in_use")
+        self.assertIn("other program", str(caught.exception))
+        self.assertFalse(self.children)
+        with self.host.open_store() as store:
+            self.assertEqual(store._connection.execute("SELECT count(*) FROM ownership_enrollments").fetchone()[0], 0)
+
     async def test_running_host_prevents_approval_without_fencing_its_lease(self):
         with self.host.open_store() as store:
             server = WorldServer(ServerConfig(self.host.build_id, self.host.ruleset_id), store=store)
@@ -317,10 +335,52 @@ class LauncherSetupTests(unittest.IsolatedAsyncioTestCase):
         with self.host.open_store() as store:
             self.assertEqual(store._connection.execute("SELECT count(*) FROM checkpoints").fetchone()[0], 1)
 
+    async def test_an_attempt_with_the_hosts_allocations_restarts_and_keeps_its_receipts(self):
+        """KNOWN_ISSUES NU-1's update (the audit of 2026-11-17, real launchers): a game ended just after reaching the field
+        leaves the host's acknowledged allocation (``<grant>.grant.json``); every later setup of the place was refused for
+        good. An unused allocation only burns its IDs: with nothing committed on the host the attempt is set aside, its
+        receipts kept with it."""
+        before = await self.abandon()
+        receipts = {"0" * 8 + "-0000-4000-8000-" + "0" * 11 + str(n) + ".grant.json": b'{"grant": %d}' % n for n in (1, 2)}
+        for name, data in receipts.items():
+            (self.profile() / name).write_bytes(data)
+        companion_patch, spawn_patch = self.fixture()
+        with companion_patch, spawn_patch:
+            async with self.context(restart_abandoned=True) as runtime:
+                result = await runtime.enroll()
+                self.assertEqual(result.metadata["revision"], 1)
+        kept = list((self.profile() / "abandoned-enrollments").iterdir())
+        self.assertEqual(len(kept), 1)
+        self.assertEqual({p.name: p.read_bytes() for p in kept[0].iterdir()},
+                         {**{name: data for name, data in before.items() if not name.startswith("host-")}, **receipts})
+        self.assertTrue((self.profile() / "enrollment-completed.json").exists())
+        with self.host.open_store() as store:
+            self.assertEqual(store._connection.execute("SELECT count(*) FROM checkpoints").fetchone()[0], 1)
+
+    async def test_a_new_character_takes_over_another_characters_abandoned_attempt(self):
+        """The place's earlier attempt was another character's (shell_app's "takes it over"), whole and with nothing
+        committed: set aside, kept; the new character enrolls."""
+        before = await self.abandon()
+        (self.profile() / ("0" * 8 + "-0000-4000-8000-" + "0" * 12 + ".grant.json")).write_bytes(b"{}")
+        self.original = source_flash(personalities=(4242,))
+        self.source.write_bytes(self.original)
+        self.native.personalities = (4242,)          # the game exports the new character
+        companion_patch, spawn_patch = self.fixture()
+        with companion_patch, spawn_patch:
+            async with self.context(restart_abandoned=True) as runtime:
+                result = await runtime.enroll()
+                self.assertEqual(result.metadata["revision"], 1)
+        kept = list((self.profile() / "abandoned-enrollments").iterdir())
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(kept[0].joinpath("enrollment-source.flash").read_bytes(), before["enrollment-source.flash"])
+        self.assertEqual(kept[0].joinpath("pending-enrollment.json").read_bytes(), before["pending-enrollment.json"])
+        self.assertEqual((self.profile() / "enrollment-source.flash").read_bytes(), self.original)
+
     async def test_an_attempt_that_went_further_is_never_restarted(self):
         await self.abandon()
-        for name, data in (("0" * 8 + "-0000-4000-8000-" + "0" * 12 + ".grant.json", b"{}"),
-                           ("pending-export.json", b"{}"), ("unknown.bin", b"?")):
+        for name, data in (("pending-export.json", b"{}"), ("unknown.bin", b"?"),
+                           # an allocation receipt's name with something else in it: not a receipt
+                           ("0" * 8 + "-0000-4000-8000-" + "0" * 12 + ".grant.json.part", b"{}")):
             extra = self.profile() / name
             extra.write_bytes(data)
             listing = sorted(p.name for p in self.profile().iterdir())

@@ -61,7 +61,34 @@ MESSAGES = {
                                "finish it, then try again.",
     "battle_reserved": "A battle of this account in the host's world is not finished yet. Try again in a moment.",
     "unreadable_character": "This character's save could not be read. Restore an earlier version in Characters.",
+    # The host's own setup (launcher_setup): its reason, not "could not finish" (the audit of 2026-11-17).
+    "world_active": "This world is already running in another window: close that host first, then try again.",
+    "port_in_use": "This world's port is already in use on this PC: close the running host, or the other program using "
+                   "that port, then try again.",
 }
+
+
+def _refusal_messages():
+    """A host's answer that ends the connection for good (connection_diagnostics.PERMANENT: another version, a replaced
+    invite code, another world, an expired certificate, ...) or for now (HELD: a full or busy world, the same player
+    already playing), in the words Join Friend uses: the title, the reason and what the friend can do."""
+    from . import connection_diagnostics as diagnostics
+    messages = {}
+    for code in sorted(diagnostics.PERMANENT | diagnostics.HELD):
+        explanation = diagnostics.describe(code)
+        messages[code] = " ".join((explanation.title + ".", explanation.message, *explanation.friend_steps))
+    return messages
+
+
+for _code, _text in _refusal_messages().items():
+    MESSAGES.setdefault(_code, _text)
+
+
+def _refused(companion):
+    """The host's refusal the companion recorded, as a CreationError code: None while there is none to name."""
+    from . import connection_diagnostics as diagnostics
+    failure = getattr(companion, "failure", None)
+    return failure if failure in diagnostics.PERMANENT | diagnostics.HELD else None
 
 
 class CreationError(ValueError):
@@ -175,9 +202,13 @@ async def remote_enrollment(installation, private_root, *, invitation_path, rout
         try:
             async with asyncio.timeout(connection_timeout):
                 while not companion.connected:
+                    # The host answered and refused for good (KNOWN_ISSUES NU-3's update, the audit of 2026-11-17: a
+                    # replaced invite code waited out the time limit and was reported as "did not answer").
+                    if getattr(companion, "stopped", None) is not None:
+                        raise CreationError(_refused(companion) or "connection_timeout")
                     await asyncio.sleep(.025)
         except TimeoutError:
-            raise CreationError("connection_timeout") from None
+            raise CreationError(_refused(companion) or "connection_timeout") from None
         publish("approving")
         if character_payload is not None:
             from .character_transfer import TransferError, detach_from_world
