@@ -97,7 +97,7 @@ below).
 | NU-3 (gaps) | A replaced invite code: "did not answer in time"; another world's code: "certificate expired" | The host's refusal reported at once in Join Friend's words; another world's certificate is "not the world from your invite" | Unit tests (fail without them); **real launchers: both messages right, the other cases unchanged** |
 | MS-258 | Tower Duo: a second press after Accept opened the team page and a third took the first Pokemon out (the Duo battle fought with 2 of 3); a second press after Ready undid it | A Duo page whose state or own readiness changed is a new page: the game starts it on its first row (a name, no action) | Unit test (fails without it); **real games: every extra press on the first row, the team three, both ready, the Duo battle** |
 | MS-260 | PokeNav > World > Players and weather cut its rows mid-word: "Friend Fl - LITTLEROOT TO", "... - Location hidd" | The place's leading whole words ("LITTLEROOT"), "hidden"; the whole place on the player's own page | Unit test; **real games: "Friend Fl - LITTLEROOT", "Friend Fa - hidden" (pictured)** |
-| MS-259 (seen once) | "This save needs recovery" for 0.2 s as the game closed 0.2 s after a save (the MS-214 recheck); the final message right, nothing pending | Not changed: not reproduced with every failed save traced | - |
+| MS-259 (seen once) | "This save needs recovery" for 0.2 s as the game closed 0.2 s after a save (the MS-214 recheck); the final message right, nothing pending | **2026-11-18: cause found and fixed** (app `707a651`): a normal close's link end read as a lost connection and a stopped save until the exit was settled; reproduced in 6 of 8 closes right after a save, none of 8 after the fix (KNOWN_ISSUES MS-259's update) | **Fixed** |
 | The audit's own checks | `ci_play_check.play` counted a recovery commit made as the game opened as its Save now, and closed the game during the real one | The Save now's revision is the one after the newest at the press | **MS-214's run again: every step passed** (the host's refusal shown by itself, the kept save committed as revision 3 when the friend joined again, the Save now 4) |
 | MS-210 (cosmetic, recorded) | With all 16 sprite palettes in use, the healing machine's Poke Balls are drawn in another palette's colours | Not changed (the guard skips the write, as designed; only in a Pokemon Center already full of players' sprites) | - |
 | The palette test hook | `PKMN_TEST_PALETTE_FREE=0` was read as off | Engine `c7f89d61` (test builds only) | MS-210's run |
@@ -152,9 +152,9 @@ named their runs only in other documents.
 
 MS-123 (a full queue to the companion) and MS-124's 1 s against 10 s, listed here until then, were shown in real
 games on 2026-11-18: MS-123 with a test hook holding the game's sends, MS-124 by a stall while both players walked,
-with the old limit run to compare (KNOWN_ISSUES' updates; TEST_LEDGER).
+with the old limit run to compare; MS-259's cause was found and fixed the same day (KNOWN_ISSUES' updates;
+TEST_LEDGER).
 
-* **MS-259's cause** - a 0.2 s status seen once, not reproduced with every failed save traced.
 * **MS-51's exact sequence** - closing before a save cannot be produced by play (the launcher saves first).
 * **G1, MS-10** - the trade-effect path is not in the package.
 * **Windows**: none of this audit's runs were on Windows. Its fixes (MS-254 to MS-258, NU-1's and NU-3's gaps) went
