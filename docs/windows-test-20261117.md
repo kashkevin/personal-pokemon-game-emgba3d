@@ -139,6 +139,10 @@ it, such a pad worked only in the menu):
 8. Both stand in the same Pokemon Center with their partner Pokemon following; heal at the counter: no crash,
    nothing garbled.
 9. If you have them: a third and a fourth PC join the same way.
+10. A new network address for PC 1 (KNOWN_ISSUES WC-2: never tried on real PCs): close both games and launchers;
+    give PC 1 a new address - switch it between Wi-Fi and a cable, or restart the router (in `cmd`, `ipconfig`
+    shows the IPv4 Address before and after; it must differ). PC 1: **Host World** again with the same world: it
+    opens on the new address. Send PC 2 a new invite code; PC 2 joins with it: you see each other again.
 
 ## 7. Test F: two PCs over the Internet (30 minutes)
 

@@ -462,11 +462,19 @@ CHOOSE_MOVE_REQUEST, CHOOSE_POKEMON_REQUEST = 19, 21
 FORFEIT_ROLE = 3            # engine B_COMM_PC_FORFEIT: a player gives up (KNOWN_ISSUES MS-126)
 
 
+NATIVE_ACTION_MENU = False  # the native interface's battle screen (a proof's --native-ui): FIGHT over BAG, POKEMON, RUN
+
+
 async def choose_run(probe, battler):
     """One key towards Run on the action menu (Fight 0, Bag 1, Pokemon 2, Run 3, two by two), A once it is there.
-    True when A was pressed on Run."""
+    The native interface's battle screen (NATIVE_ACTION_MENU) lays them out as FIGHT over a row of BAG, POKEMON and RUN
+    (ui_battle.c FilterKeys: DOWN from FIGHT to BAG, RIGHT along the row). True when A was pressed on Run."""
     cursor = probe.mem("gActionSelectionCursor", 1, battler)[0]
-    await probe.press(1 if cursor == 3 else 128 if cursor == 1 else 16, frames=12, release=18)
+    if NATIVE_ACTION_MENU:
+        key = 1 if cursor == 3 else 128 if cursor == 0 else 16
+    else:
+        key = 1 if cursor == 3 else 128 if cursor == 1 else 16
+    await probe.press(key, frames=12, release=18)
     return cursor == 3
 
 

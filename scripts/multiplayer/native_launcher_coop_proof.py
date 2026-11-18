@@ -52,6 +52,9 @@ parties afterwards, with the launcher harness of native_launcher_battle_proof.py
     action menu again, the cursor on GIVE UP, nothing sent), then Yes; its
     teammate chooses its turn as usual. The same loss as --give-up, without a
     notice: the giver's one reply a Run; the question pictured beside --output;
+    with --native-ui (the native 3D game: --game the DIORAMA build) the games
+    keep the native interface on, with native_launcher_battle_3d_proof.py's
+    light 3D settings, so the question is pictured in the native battle screen;
   - checks, from each game's memory: every Pokemon of its own that could battle
     gained experience, its lead (sent out) the most; Pokemon that grew; the
     teammate's party is no longer held (each game changes only its own party);
@@ -703,14 +706,21 @@ async def run(args):
     if GIVE_UP_MENU >= 0:
         PICTURES = root.parent / (root.name + "-pictures")
         PICTURES.mkdir(parents=True, exist_ok=True)
+    if args.native_ui:
+        # The native 3D game with its own screens (the give-up question in the native battle screen): the 3D proof's
+        # light settings, and the action menu's keys as that screen lays it out (FIGHT over BAG, POKEMON, GIVE UP).
+        import native_launcher_battle_proof as battle_proof
+        from native_launcher_battle_3d_proof import LIGHT_3D_SETTINGS
+        battle_proof.NATIVE_ACTION_MENU = True
+        settings, environment = LIGHT_3D_SETTINGS, dict(SDL_FRAMEBUFFER_ACCELERATION="0")
+    else:
+        # The harness drives the GBA start menu and Players menu by their memory (written before the native PC UI);
+        # the co-op battle and its award do not depend on the UI layer (the award's screens with the native UI:
+        # native_coop_exp_award_proof.py).
+        settings, environment = "windowScale=2\n", dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="0")
     await launcher_proof(args, names=NAMES, sources=tuple(sources), party_counts=(2, 1), match=coop_match,
                          version="Native co-op proof", after_boot=after_boot, on_harness=adopt,
-                         settings="windowScale=2\n", scope=__doc__.split("\n\n")[0],
-                         # The harness drives the GBA start menu and Players menu by their
-                         # memory (written before the native PC UI); the co-op battle and its
-                         # award do not depend on the UI layer (the award's screens with the
-                         # native UI: native_coop_exp_award_proof.py).
-                         environment=dict(SDL_FRAMEBUFFER_ACCELERATION="0", PKMN_NATIVE_UI="0"))
+                         settings=settings, scope=__doc__.split("\n\n")[0], environment=environment)
 
 
 def main():
@@ -738,6 +748,9 @@ def main():
     parser.add_argument("--give-up-menu", type=int, default=-1, choices=(-1, 0, 1),
                         help="this player gives up at its first action from the action menu's GIVE UP, which asks "
                              "first (the owner's decision #61): No once, then Yes; the team must lose, nothing gained")
+    parser.add_argument("--native-ui", action="store_true",
+                        help="the native 3D game (--game the DIORAMA build) with its native interface on and light "
+                             "3D settings: the battle drawn by the native battle screen")
     asyncio.run(run(parser.parse_args()))
 
 

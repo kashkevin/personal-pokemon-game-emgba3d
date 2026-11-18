@@ -45,6 +45,12 @@ ordinary key presses. Scenarios (--scenario):
                      (the abandonment record's `left`: a battle together a game left is the team's loss - in the Tower
                      Duo and the ladders a loss, in a co-op Gym the same as before); the host's launcher follows by
                      itself. Friends 2 and 3 take no part.
+    pairs-corestop   pairs-crash's two battles, but Friend 3's battle core stops itself (KNOWN_ISSUES MS-125; Linux:
+                     gdb calls the game's MultiplayerBattle_FailNative, the function every failing check of the core
+                     calls, from inside its battle's own frame). Its game keeps running and says "This battle stopped.
+                     In the launcher: Recover battle, or Abandon battle." (pictured: core-stopped-notice.png); the
+                     host's room needs recovery; the host and Friend 1 finish their battle; Friend 2 and Friend 3
+                     abandon from their launchers; then Friend 2 and Friend 3 battle each other again to the end.
 
 Every scenario then checks: everyone back on the field, linked to the other three ("Connected: 4/4"), every party the
 one from before the battle, no pending battle intent anywhere, the abandoned battle has no result (no archive entry, no
@@ -71,13 +77,15 @@ import json
 import os
 from pathlib import Path
 import signal
+import subprocess
 import sys
 import threading
 import time
 import traceback
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "windows-runtime"))
-from native_launcher_battle_proof import WINDOWS, Player, drive_battle_input, launcher_proof  # noqa: E402
+from native_launcher_battle_proof import (WINDOWS, Player, drive_battle_input, game_picture,  # noqa: E402
+                                          launcher_proof)
 from native_launcher_ffa_proof import (challenge_free_for_all, close_players, into_littleroot,  # noqa: E402
                                       players_tab, pose_of, save_regions)
 from qualify_admission_cleanup import on_worker, require  # noqa: E402
@@ -92,7 +100,13 @@ def kill_hard(pid):
 
 
 PLAYER_NAMES = ("AB Host", "AB Friend 1", "AB Friend 2", "AB Friend 3")
-SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit", "ffa-knockout", "multi-knockout", "coop-exit")
+SCENARIOS = ("pairs-crash", "multi-network", "ffa-host-crash", "ffa-exit", "ffa-knockout", "multi-knockout", "coop-exit",
+             "pairs-corestop")
+# pairs-corestop (Linux): gdb stops Friend 3's battle core from inside its battle's own frame (BattleMainCB2), by the
+# function every check of the core calls when it fails (MultiplayerBattle_FailNative, KNOWN_ISSUES MS-71, MS-125)
+CORE_STOP_GDB = ("set pagination off", "set confirm off", "handle SIGPIPE nostop noprint pass", "break BattleMainCB2",
+                 "continue", "delete", "call (void)MultiplayerBattle_FailNative()",
+                 "print (int)MultiplayerBattle_StoppedForRecovery()", "detach")
 
 
 def knockout_teams(player_ids):
@@ -439,6 +453,20 @@ class AbandonProof:
             await harness.poll_until(lambda: games[slot].process.returncode is not None, 60)
             record("game-" + ("killed" if kind == "crash" else "closed") + "-during-the-battle", slot=slot,
                    exit_code=games[slot].process.returncode)
+        elif kind == "core-stop":
+            # KNOWN_ISSUES MS-125: the battle core stops itself (a check failing calls MultiplayerBattle_FailNative); the
+            # game keeps running, its battle held for the launcher's Recover battle or Abandon battle.
+            require(not WINDOWS, "pairs-corestop stops a core with gdb (Linux)")
+            pid = games[slot].process.pid
+            command = ["gdb", "-p", str(pid), "-batch"]
+            for line in CORE_STOP_GDB:
+                command += ["-ex", line]
+            done = await asyncio.to_thread(subprocess.run, command, capture_output=True, text=True, timeout=120)
+            lines = [line for line in (done.stdout + done.stderr).splitlines() if line.startswith("$1")]
+            require(games[slot].process.returncode is None, "the game ended when its core was stopped")
+            require(lines == ["$1 = 1"], f"the core did not stop itself: gdb {done.returncode} {lines} "
+                                         f"{(done.stdout + done.stderr)[-600:]}")
+            record("battle-core-stopped-itself", slot=slot, pid=pid, stopped_for_recovery=lines[0])
         elif kind == "network":
             async def cut(s):
                 writer = s._companion._remote_writer
@@ -661,6 +689,59 @@ class AbandonProof:
         await self.abandoned(current, interrupted, record)
         await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-crash")
         # The two who were in the abandoned battle battle each other again, to the end.
+        await self.challenge_1v1(host, probes, 2, 3)
+        again = await self.enter(current, probes, (2, 3), record, "rematch-1v1")
+        stops, drivers = self.drive(current, probes, symbols, again, (2, 3))
+        await self.finish(current, probes, again, (2, 3), stops, drivers, record, "rematch-1v1")
+        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-rematch")
+
+    async def pairs_corestop(self, current, probes, games, host, symbols, record, before):
+        """KNOWN_ISSUES MS-125: pairs-crash's two 1v1 battles, but Friend 3's battle core stops itself (its game keeps
+        running, the battle on screen). The game says so ("This battle stopped. In the launcher: Recover battle, or
+        Abandon battle.", pictured), the host's next query finds the core held for recovery and the room needs
+        recovery; the host and Friend 1 finish their battle; Friend 2 and Friend 3 abandon from their launchers (Friend
+        3's offered too: its game is held), each back on the field with its party; then they battle again to the end."""
+        await self.challenge_1v1(host, probes, 0, 1)
+        await self.challenge_1v1(host, probes, 2, 3)
+        battles = await self.enter(current, probes, range(4), record, "two-1v1-battles")
+        stops, drivers = self.drive(current, probes, symbols, battles, range(4))
+        interrupted = next(b for b, v in battles.items() if host.accounts[3].player_id in v["players"])
+        async with asyncio.timeout(self.interrupt_after):
+            while self.seen[3].get("presses", 0) < 3:
+                await asyncio.sleep(.1)
+        stops[3].set()
+        await drivers[3]
+
+        async def state(s):
+            room = s._server.battle_execution.rooms.get(interrupted)
+            return None if room is None else room.state
+        if await on_worker(current[0], state) != "executing":
+            room = await on_worker(current[0], self.room_view(interrupted))
+            raise AssertionError(f"the battle to interrupt is no longer running: {room}")
+        await self.interrupt("core-stop", 3, current, games, record)
+        await asyncio.sleep(2)
+        shot = self.harness.output / "core-stopped-notice.png"
+        await asyncio.to_thread(game_picture, probes[3], shot)
+        record("core-stopped-pictured", slot=3, picture=shot.name)
+        async with asyncio.timeout(120):
+            while await on_worker(current[0], state) != "recovery_required":
+                await asyncio.sleep(.5)
+        record("host-room-needs-recovery", battle_id=interrupted,
+               room=await on_worker(current[0], self.room_view(interrupted)))
+        finished = await self.finish(current, probes, battles, (0, 1), stops, drivers, record, "uninterrupted-1v1")
+        record("the-other-battle-finished-normally", results=finished)
+        await drivers[2]
+        states = await self.watch_after(current, (2, 3), interrupted, record, self.watch)
+        record("offers-after-the-core-stopped", players={self.harness.names[n]: dict(
+            abandon=v.get("abandon_offered"), recover=v.get("recovery_offered"), code=v.get("code"))
+            for n, v in states.items()})
+        await self.abandon_from(2, current, probes, games, record)
+        if (await self.state_of(current[3])).get("abandon_offered"):
+            await self.abandon_from(3, current, probes, games, record)
+        else:
+            await self.abandon_from(3, current, probes, games, record, explicit=False)
+        await self.abandoned(current, interrupted, record)
+        await self.world_is_whole(current, probes, before, record, "everyone-back-after-the-core-stopped")
         await self.challenge_1v1(host, probes, 2, 3)
         again = await self.enter(current, probes, (2, 3), record, "rematch-1v1")
         stops, drivers = self.drive(current, probes, symbols, again, (2, 3))
