@@ -797,8 +797,10 @@ class ProxyStallMixin:
         snapshot and pose the host sends the friend meet a link that takes nothing, so the writers' small buffers fill
         and a write waits for the link (every drain over 0.3 s recorded, its side and seconds). With the configured
         10 s a write may wait that long: the friend must stay linked (the same session on both ends) and some write must
-        have waited over 1 s (the limit before app 89a27d5, which dropped the player). With --drain-timeout the result
-        is recorded only, and the friend, if dropped, must be back within 60 s."""
+        have waited over 1 s (the limit before app 89a27d5, which dropped the player). With --drain-timeout 1.0 (the
+        old limit) the friend must be dropped instead - the host closes its session as a slow consumer, and the
+        friend's launcher takes its host-loss path (the save kept on the PC, no reconnection by itself) - and then
+        rejoins as a player does (its game closed, the launcher started again), for the rest of the run."""
         stop = asyncio.Event()
 
         async def walker(probe):
@@ -832,12 +834,17 @@ class ProxyStallMixin:
             require(longest > 1.0, f"no write waited over 1 s during the walking stall (longest {longest} s): "
                                    f"the stall did not reach MS-124's condition")
             return after
-        deadline = time.monotonic() + 60
-        while not (after["friend"]["connected"] and after["host"] is not None and not after["host"]["closed"]):
-            require(time.monotonic() < deadline, f"the friend was not linked again within 60 s: {after}")
-            await asyncio.sleep(1)
-            after = await self.link_state(current)
-        record("walk-stall-linked-again", link=after, same_session=after["host"]["id"] == state["host"]["id"])
+        dropped = not same
+        await asyncio.sleep(5)          # the friend's launcher settles on its host-loss path
+        friend = await self.launcher(current[1])
+        record("walk-stall-under-the-old-limit", dropped=dropped, friend_launcher=friend, link_after=after)
+        require(dropped, f"under drain_timeout {DRAIN_TIMEOUT[0]} the friend was not dropped (longest wait "
+                         f"{longest} s): the stall did not reach the old limit")
+        await self.rejoin(1, current, probes, self.games, record)
+        after = await self.link_state(current)
+        record("walk-stall-rejoined", link=after)
+        require(after["friend"]["connected"] and after["host"] is not None and not after["host"]["closed"],
+                f"the friend was not linked again after rejoining: {after}")
         return after
 
     async def proxy_stall(self, current, probes, symbols, record):
@@ -1017,7 +1024,8 @@ class QueueFullMixin:
                 if state["answer_generation"] != answer_before and state["answer_generation"] % 2 == 0:
                     answered = dict(state, seconds_after_save=round(time.monotonic() - held_at, 1))
                     break
-                require(not saving.done() or not saving.exception(), f"Save failed at once: {saving.exception()!r}")
+                if saving.done() and saving.exception() is not None:
+                    raise AssertionError(f"Save failed at once: {saving.exception()!r}")
                 await asyncio.sleep(.02)
             require(answered is not None, "the game did not answer the save command while its sends were held")
             await asyncio.sleep(QUEUE_HOLD_SECONDS[0])
