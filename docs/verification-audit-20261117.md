@@ -153,7 +153,9 @@ named their runs only in other documents.
 MS-123 (a full queue to the companion) and MS-124's 1 s against 10 s, listed here until then, were shown in real
 games on 2026-11-18: MS-123 with a test hook holding the game's sends, MS-124 by a stall while both players walked,
 with the old limit run to compare; MS-259's cause was found and fixed the same day (KNOWN_ISSUES' updates;
-TEST_LEDGER).
+TEST_LEDGER). A re-scan that day of every issue's latest row for a fix still reading unverified found one this audit
+had not listed, MS-83 (a unit test only): its case ends well in real games with and without the fix's branch (L) and
+on Windows (runs 479 and 482; KNOWN_ISSUES MS-83's update).
 
 * **MS-51's exact sequence** - closing before a save cannot be produced by play (the launcher saves first).
 * **G1, MS-10** - the trade-effect path is not in the package.
