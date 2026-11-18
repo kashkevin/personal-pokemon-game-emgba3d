@@ -14,6 +14,9 @@
 # runner create a character each through the game's New Game, the host plays Solo and hosts a world, the friend joins it with the
 # copied invite code, and every save reaches its world; then the friend joins again from the saved server, creates a second
 # character and joins with it (it takes the place over), and joins once more (a friend could not join back on 2026-10-24).
+# With other_installer_run_id too the version-check job plays two versions against each other (KNOWN_ISSUES MS-28): the host on
+# one installed version, the friend on the other; the friend's Check and join must stop on "Different game versions", nothing
+# made; then the other way round.
 # Nothing here is uploaded beyond the checks' own reports, menu pictures, screen logs and the Setup logs; the profiles are deleted.
 name: installed-world-check
 
@@ -34,6 +37,9 @@ on:
       rejoins:
         description: "play check: how many times the friend joins again from the saved server (each a Save now and a normal close)"
         default: "1"
+      other_installer_run_id:
+        description: "version check (KNOWN_ISSUES MS-28): another windows-package run whose installer the friend plays; blank = none"
+        default: ""
   push:
     paths:
       - .github/workflows/installed-world-check.yml
@@ -252,3 +258,67 @@ jobs:
             ${{ runner.temp }}/relay-check/*.log
           retention-days: 7
           if-no-files-found: warn
+
+  version-check:
+    name: Another version refused at Check and join, both ways (KNOWN_ISSUES MS-28)
+    if: ${{ inputs.installer_run_id != '' && inputs.installer_run_id != null && inputs.other_installer_run_id != '' && inputs.other_installer_run_id != null }}
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      NEW_RUN: ${{ inputs.installer_run_id || '' }}
+      OTHER_RUN: ${{ inputs.other_installer_run_id || '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            scripts/windows-runtime
+            src
+            tests
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: The installer to check
+        uses: actions/download-artifact@v8
+        with:
+          name: EmeraldTogether-Windows-Installer
+          path: new-installer
+          run-id: ${{ env.NEW_RUN }}
+          github-token: ${{ github.token }}
+      - name: The other version's installer
+        uses: actions/download-artifact@v8
+        with:
+          name: EmeraldTogether-Windows-Installer
+          path: other-installer
+          run-id: ${{ env.OTHER_RUN }}
+          github-token: ${{ github.token }}
+      - name: "The host on run ${{ env.NEW_RUN }}'s version, the friend on run ${{ env.OTHER_RUN }}'s, then the other way round"
+        # scripts/windows-runtime/ci_play_check.py --other-setup: each installed in a folder of its own; the friend's Check
+        # and join must stop at once on "Different game versions", nothing saved or stored on its PC, its character
+        # untouched, no save of it in the host's world, the host's game playing on (the other version hosting: its closes
+        # recorded only, as an earlier launcher's).
+        run: |
+          sha256sum new-installer/*.exe other-installer/*.exe
+          this="$(ls new-installer/EmeraldTogether-Setup-*.exe)"
+          other="$(ls other-installer/EmeraldTogether-Setup-*.exe)"
+          python scripts/windows-runtime/ci_play_check.py --setup "$this" --other-setup "$other" \
+            --work "$RUNNER_TEMP/version-check/this-hosts" --label this-hosts
+          python scripts/windows-runtime/ci_play_check.py --setup "$other" --other-setup "$this" \
+            --work "$RUNNER_TEMP/version-check/other-hosts" --label other-hosts --close-warnings record
+      - name: Upload the reports and screen logs (7 days)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: EmeraldTogether-version-check
+          path: |
+            ${{ runner.temp }}/version-check/*/*-play-check.json
+            ${{ runner.temp }}/version-check/*/*-screens.jsonl
+            ${{ runner.temp }}/version-check/*/*-pictures/
+            ${{ runner.temp }}/version-check/*/*.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Remove the profiles
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/version-check"

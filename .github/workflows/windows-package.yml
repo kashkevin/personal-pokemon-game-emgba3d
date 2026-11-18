@@ -4133,6 +4133,20 @@ jobs:
           echo "updating from: $(basename "$earlier") sha256 $(sha256sum "$earlier" | cut -d' ' -f1) (run ${{ inputs.upgrade_from_run }})"
           python scripts/windows-runtime/ci_play_check.py --setup "$earlier" \
             --upgrade-to "$(ls installer/EmeraldTogether-Setup-*.exe)" --work "$RUNNER_TEMP/upgrade-check" --label update
+      - name: Another version refused at Check and join, both ways (full, upgrade_from_run; KNOWN_ISSUES MS-28)
+        if: env.MODE == 'full' && inputs.upgrade_from_run != ''
+        # scripts/windows-runtime/ci_play_check.py --other-setup: the host on one installed version, the friend on the
+        # other (the earlier run's installer, installed in a folder of its own); the friend's Check and join with the invite
+        # code must stop at once on "Different game versions" (the owner's "Same version required"): nothing saved or
+        # stored on the friend's PC, the character untouched, no save of it in the host's world, the host's game playing on.
+        # Then the other way round (the earlier version hosting: its closes recorded, as an earlier launcher's).
+        run: |
+          earlier="$(ls earlier-installer/EmeraldTogether-Setup-*.exe)"
+          this="$(ls installer/EmeraldTogether-Setup-*.exe)"
+          python scripts/windows-runtime/ci_play_check.py --setup "$this" --other-setup "$earlier" \
+            --work "$RUNNER_TEMP/version-check/this-hosts" --label this-hosts
+          python scripts/windows-runtime/ci_play_check.py --setup "$earlier" --other-setup "$this" \
+            --work "$RUNNER_TEMP/version-check/earlier-hosts" --label earlier-hosts --close-warnings record
       - name: Upload the installation check report (7 days)
         if: always()
         uses: actions/upload-artifact@v7
@@ -4160,6 +4174,9 @@ jobs:
             ${{ runner.temp }}/ended-check/*-screens.jsonl
             ${{ runner.temp }}/ended-check/*.log
             ${{ runner.temp }}/upgrade-check/*-play-check.json
+            ${{ runner.temp }}/version-check/*/*-play-check.json
+            ${{ runner.temp }}/version-check/*/*-screens.jsonl
+            ${{ runner.temp }}/version-check/*/*.log
             ${{ runner.temp }}/upgrade-check/*-screens.jsonl
             ${{ runner.temp }}/upgrade-check/*-pictures/
             ${{ runner.temp }}/upgrade-check/*.log

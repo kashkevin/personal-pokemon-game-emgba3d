@@ -58,6 +58,9 @@ class WindowsWorkflowTests(unittest.TestCase):
         self.assertIn("scripts/windows-runtime/ci_relay_check.py --setup", check)
         # KNOWN_ISSUES MS-216: a character's save copies kept to the newest 40, in the installed build
         self.assertIn("--label copies --save-copies 45", check)
+        # KNOWN_ISSUES MS-28: another version refused at Check and join, both ways (the update check's earlier installer)
+        self.assertIn('--setup "$this" --other-setup "$earlier"', check)
+        self.assertIn('--setup "$earlier" --other-setup "$this"', check)
         script = (ROOT / "scripts/windows-runtime/ci_installer_check.py").read_text(encoding="utf-8")
         for switch in ("/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/DIR=", "LOCALAPPDATA"):
             self.assertIn(switch, script)

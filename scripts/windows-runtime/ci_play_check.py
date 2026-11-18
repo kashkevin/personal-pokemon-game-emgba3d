@@ -188,9 +188,11 @@ class LinuxDesk:
     KEYS = dict(down="Down", up="Up", home="Home", end="End", enter="Return", escape="Escape", tab="Tab", backspace="BackSpace")
     GAME_KEYS = dict(a="z", b="x", start="Return", up="Up", down="Down", left="Left", right="Right")
 
-    def __init__(self, application, displays, audit_busy=False, world_port=None):
+    def __init__(self, application, displays, audit_busy=False, world_port=None, versions=None):
         self.application, self.displays = application, displays
         self.audit_busy, self.world_port = audit_busy, world_port
+        # --other-setup on Linux: {profile: release label} (KNOWN_ISSUES MS-28)
+        self.versions = {str(Path(key).resolve()): value for key, value in (versions or {}).items()}
         self.display_of = {}            # each player's launcher process: its display
         self.profile_display = {}       # each player's display, handed out in the order they first start; kept on a restart
         self.found = {}                 # any other process of a player's (a menu, a game): (display, start time), kept once found
@@ -205,6 +207,8 @@ class LinuxDesk:
             env["AUDIT_BUSY_LOG"] = "1"
         if self.world_port:
             env["AUDIT_WORLD_PORT"] = str(self.world_port)
+        if key in self.versions:
+            env["AUDIT_LAUNCHER_VERSION"] = self.versions[key]
         env["PYTHONPATH"] = os.pathsep.join([str(ROOT / "src"), str(ROOT / "tests"), str(HERE)])
         process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--linux-app", str(self.application),
                                     str(profile)], env=env, cwd=str(profile))
@@ -329,8 +333,9 @@ class LinuxDesk:
 # ------------------------------------------------------------------ one player: their profile, menu and games
 
 class Player:
-    def __init__(self, check, name, profile):
-        self.check, self.desk, self.name, self.profile = check, check.desk, name, profile
+    def __init__(self, check, name, profile, desk=None):
+        """``desk``: this player's own program (--other-setup: a friend's EmeraldTogether of another version)."""
+        self.check, self.desk, self.name, self.profile = check, desk or check.desk, name, profile
         self.private = profile / "PokemonPrivate" / "launcher"
         self.screen_log = check.work / f"{check.label}-{name}-screens.jsonl"
         self.process = None
@@ -1236,6 +1241,11 @@ def linux_app(application, profile):
     installation = GameInstallation(Path(record["rom"]), Path(record["manifest"]), record["rom_sha256"], record["manifest_sha256"],
                                     RuntimeBundle(Path(record["runtime"]), record["runtime_sha256"]))
     executable, _ = installation.bundle.verify()
+    if os.environ.get("AUDIT_LAUNCHER_VERSION"):
+        # --other-setup: this launcher's release label, as shell_app._main sets a packaged one's (every hello says it,
+        # a world it hosts admits only it: KNOWN_ISSUES MS-28)
+        from emerald_multiplayer.protocol import set_launcher_version
+        set_launcher_version(os.environ["AUDIT_LAUNCHER_VERSION"])
     if os.environ.get("AUDIT_WORLD_PORT"):
         # --world-port: the first port new worlds of this profile take (world_registry.free_port starts at its
         # DEFAULT_PORT, 7777), for a PC where another program already listens on 7777
@@ -1267,6 +1277,82 @@ def linux_app(application, profile):
         shell.close()
         if launcher_lock is not None:
             launcher_lock.release()
+
+
+def version_mismatch_check(check, host, friend):
+    """--other-setup (KNOWN_ISSUES MS-28; the owner's choice "Same version required"): the friend's EmeraldTogether is
+    another version - another run's installer (its release label at the top of the main menu), on Linux another release
+    label. The host makes a character, hosts a world and plays in it; the friend makes a character and joins with the
+    invite code. Check and join must stop at once on "Different game versions" (the host's world refuses the friend's
+    hello before anything starts): nothing created, no saved server or stored invitation on the friend's PC, the
+    friend's character untouched, no save of it in the host's world; the host's game plays on and closes normally."""
+    report = {}
+    host.start()
+    friend.start()
+    check.picture("menus")
+    check.create_character(host)
+    friend_character = check.create_character(friend)
+
+    def friend_record():
+        return json.dumps(next(c for c in friend.characters() if c["character_id"] == friend_character["character_id"]),
+                          sort_keys=True)
+    before = friend_record()
+    world, code, slot, host_game, report["host"] = check.host(host)
+    main = friend.expect("main")
+    friend.choose(main, "join")
+    friend.choose(friend.expect("join_list"), "new")
+    friend.expect("join_new")
+    friend.text(code)
+    for _ in ("name", "address", "port", "join"):
+        friend.key("enter")                        # a field's Enter moves on: the name, the address, the port, Check and join
+    began = time.monotonic()
+    friend.key("enter")                            # Check and join
+    friend.log("Join Friend: typed the invite code, Check and join")
+    shown = friend.expect(("offline", "bring_character", "session"), 180)
+    seconds = round(time.monotonic() - began, 1)
+    check.picture("version-refused")
+    notes = " ".join(shown["notes"])
+    require(shown["id"] == "offline", f"{friend.name}: Check and join went on to {shown['id']} ({shown['title']}): the "
+                                      "other version was let in")
+    require("Different game versions" in notes, f"{friend.name}: Check and join stopped, but not on different versions: "
+                                                f"{shown['title']}: {shown['notes'][:3]}")
+    require("Nothing was created or reset" in notes, f"{friend.name}: the refusal does not say nothing was created: "
+                                                     f"{shown['notes'][:4]}")
+    friend.log(f"Check and join stopped within {seconds} s: {shown['title']} - " + " / ".join(shown["notes"][:2]))
+    report["refusal"] = dict(screen=shown["id"], title=shown["title"], notes=shown["notes"], seconds=seconds)
+    friend.choose(shown, "back")
+    back = friend.expect("join_new", 30)
+    status = back.get("status") or ["", ""]
+    status = str(status[1] if isinstance(status, list) and len(status) == 2 else status)
+    require("Different game versions" in status, f"{friend.name}: the join screen's status after Back: {status!r}")
+    friend.log(f"back on the join screen, which says: {status}")
+    report["refusal"]["status_after_back"] = status
+    friend.key("escape")
+    friend.expect("join_list", 30)
+    friend.key("escape")
+    friend.expect("main", 30)
+    # Nothing was made on the friend's PC; the character is as it was; the host's world has no save of it
+    servers_file = friend.private / "shell" / "servers.json"
+    servers = json.loads(servers_file.read_text(encoding="utf-8")).get("servers", []) if servers_file.is_file() else []
+    require(not servers, f"{friend.name}: a server was saved after the refusal: {servers}")
+    stored = sorted(str(path.relative_to(friend.private)) for path in friend.private.rglob("invitation.json"))
+    require(not stored, f"{friend.name}: an invitation was stored after the refusal: {stored}")
+    require(friend_record() == before, f"{friend.name}: the character changed after the refusal")
+    # the account itself is the host's (made with the invite code, at revision 0: no save yet)
+    hosted = host.world(world["name"])
+    saved = revision(hosted, slot)
+    require(saved in (None, 0), f"{host.name}: the host's world has a save for the refused friend's account (revision {saved})")
+    require(host.desk.alive(host_game[0]), f"{host.name}: the host's game ended while the friend was refused")
+    check.log(f"nothing saved or stored on the friend's PC, the character untouched, its account in the host's world at "
+              f"revision {saved or 0} (no save); the host's game played on")
+    check.close(host, host_game)
+    host.expect("host_list", 60)
+    for player in (friend, host):
+        check.finish(player)
+    for player in (host, friend):
+        require(player.error_text() == "", f"{player.name}: an error was recorded: {player.error_text()[-2000:]}")
+    check.log("no error was recorded in either profile")
+    return report
 
 
 def main():
@@ -1303,6 +1389,10 @@ def main():
                         help="one player: N Save nows in one game (more than 40), then the newest 40 copies kept after the "
                              "game closes, after Continue and at the next start (KNOWN_ISSUES MS-216); --linux takes one "
                              "--display")
+    parser.add_argument("--other-setup", metavar="SETUP",
+                        help="the friend plays another EmeraldTogether version: this other run's Setup, installed on its own "
+                             "(KNOWN_ISSUES MS-28); its Check and join must stop on different versions, nothing made; with "
+                             "--linux, SETUP is 'same': the same program with another release label")
     parser.add_argument("--stray-keys-at-close", action="store_true",
                         help="Linux: as each registration game closes by itself, A, B and Start land on the menu window "
                              "(KNOWN_ISSUES MS-15)")
@@ -1323,14 +1413,18 @@ def main():
                   setup=args.setup.name if args.setup else None)
     lines = []
     target = work / f"{args.label}-EmeraldTogether"
+    other_target = work / f"{args.label}-other-EmeraldTogether"
+    friend_desk = None
     check = host = friend = None
     try:
         if args.linux:
             displays = 1 if args.launcher_ended or args.save_copies else 2
             require(args.game and args.rom and args.manifest and len(args.display) == displays,
                     f"--linux needs --game, --rom, --manifest and {'one --display' if displays == 1 else 'two --display'}")
+            versions = ({work / "host-profile": "Linux rehearsal A", work / "friend-profile": "Linux rehearsal B"}
+                        if args.other_setup else None)
             desk = LinuxDesk(linux_application(args, work), args.display, audit_busy=args.stray_keys_at_close,
-                             world_port=args.world_port)
+                             world_port=args.world_port, versions=versions)
         else:
             require(os.name == "nt" and args.setup is not None, "this check runs on Windows with --setup (or use --linux)")
             import ci_world_check as w
@@ -1344,13 +1438,25 @@ def main():
                     raise NotRun("the installed games have no UTF-8 manifest (an engine before KNOWN_ISSUES "
                                  "MS-217): " + (", ".join(old) or "no game found"))
             desk = WindowsDesk(target / "EmeraldTogether.exe")
+            if args.other_setup:
+                other = Path(args.other_setup).resolve()
+                require(other.is_file(), f"no Setup file at {other}")
+                w.install(other, other_target, dict(os.environ, LOCALAPPDATA=str(work / "friend-profile")), work,
+                          args.label + "-other")
+                friend_desk = WindowsDesk(other_target / "EmeraldTogether.exe")
+                report["other_setup"] = other.name
         check = PlayCheck(desk, work, args.label, report, lines, loopback=args.loopback, rejoin_count=args.rejoin,
                           second_character=args.second_character, host_leaves=args.host_leaves,
                           friend_menu=args.friend_menu, stray_keys=args.stray_keys_at_close)
         report["hosted_on"] = "this PC only (--loopback)" if args.loopback else "this PC's local-network address"
         check.log(f"{report['platform']}: {'installed ' + args.setup.name + ' into ' + str(target) if not args.linux else 'Linux game'}")
         host = Player(check, "host", work / "host-profile")
-        friend = None if args.launcher_ended or args.save_copies else Player(check, "friend", work / "friend-profile")
+        friend = None if args.launcher_ended or args.save_copies else Player(check, "friend", work / "friend-profile",
+                                                                            desk=friend_desk)
+        if args.other_setup:
+            check.log("the friend's EmeraldTogether: " + (f"installed {report['other_setup']} into {other_target}" if not args.linux
+                                                          else "the same program with release label Linux rehearsal B "
+                                                               "(the host's: Linux rehearsal A)"))
         for player in (host, friend):
             if player is not None:
                 player.private.mkdir(parents=True, exist_ok=True)
@@ -1361,11 +1467,14 @@ def main():
         elif args.save_copies:
             check.strict_close = args.close_warnings == "fail"
             report["save_copies"] = save_copies_check(check, host, args.save_copies)
+        elif args.other_setup:
+            check.strict_close = args.close_warnings == "fail"
+            report["version_mismatch"] = version_mismatch_check(check, host, friend)
         else:
             # An update's earlier installer may predate MS-259's fix: its launcher's closes are recorded, not failed
             check.strict_close = args.close_warnings == "fail" and (args.linux or args.upgrade_to is None)
             world, slot = run(check, host, friend)
-        if args.upgrade_to is not None and not args.launcher_ended and not args.save_copies:
+        if args.upgrade_to is not None and not args.launcher_ended and not args.save_copies and not args.other_setup:
             require(args.linux or args.upgrade_to.is_file(), f"no Setup file at {args.upgrade_to}")
             check.strict_close = args.close_warnings == "fail"
             report["upgrade"] = upgrade(check, host, friend, None if args.linux else args.upgrade_to.resolve(), target, work,
@@ -1411,6 +1520,9 @@ def main():
         if not args.linux and target.exists():
             import ci_world_check as w
             w.uninstall(target, work, args.label)
+        if not args.linux and other_target.exists():
+            import ci_world_check as w
+            w.uninstall(other_target, work, args.label + "-other")
     if report["result"] != "passed" and not report["result"].startswith("not run"):
         raise SystemExit(1)
 
