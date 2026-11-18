@@ -1181,9 +1181,59 @@ async def port_in_use(s):
         s.cleanup((host,))
 
 
+async def close_after_save(s):
+    """KNOWN_ISSUES MS-259: CONTINUE, Save now, and the game closed as soon as the save is in the world - the play
+    check's own sequence, in which the audit once saw "This save needs recovery" for 0.2 s - ``--cycles`` times. Every
+    status the menu showed meanwhile is read from its screen log, so a status of a fraction of a second is caught. No
+    cycle may show the recovery warning or "Connection to the host was lost": the game was closed normally, nothing was
+    saving; each cycle's save must be in the world."""
+    host = s.player("host")
+    try:
+        check = s.check
+        host.start()
+        check.create_character(host)
+        main = host.expect("main")
+        host.choose(main, "solo")
+        host.choose(host.expect("solo"), "new")
+        screen = host.expect(("ask_text", "trade_rule"))
+        if screen["id"] == "trade_rule":
+            host.choose(screen, cp.RULE)
+            screen = host.expect("ask_text")
+        host.key("enter")
+        host.key("enter")
+        world = wait(lambda: host.world(host.worlds()[-1]["name"]) if host.worlds() else None, 60)
+        require(world and world["kind"] == "adventure", "no Solo world was created")
+        handle, played = check.enter_and_play(host, world, 0, keep_open=True)
+        s.record("solo-world-played", world=world["name"], result=played)
+        check.close(host, handle)
+        host.expect(("main", "solo"), 120)
+        false_warnings = ("needs recovery", "Connection to the host was lost")
+        cycles = []
+        for n in range(s.args.cycles):
+            while host.current()["id"] != "main":
+                host.key("escape")
+                time.sleep(1.5)
+            mark = len(host.screens())
+            host.choose(host.expect("main", 30), "continue")
+            _, result = check.play(host, world, 0, cp.revision(world, 0))
+            host.expect(("main", "solo"), 120)
+            time.sleep(1.5)
+            shown = statuses_since(host, mark)
+            alarms = [row for row in shown if row[1] and any(text in row[1] for text in false_warnings)]
+            cycles.append(dict(n=n + 1, saved=result["saved"], alarms=alarms))
+            s.record("cycle", n=n + 1, saved=result["saved"], alarms=alarms, shown=shown[-6:])
+        s.record("cycles", count=len(cycles), saved=[c["saved"] for c in cycles],
+                 with_a_false_warning=[c["n"] for c in cycles if c["alarms"]])
+        require(not any(c["alarms"] for c in cycles),
+                "a normal close showed a false warning in cycle(s) " + ", ".join(str(c["n"]) for c in cycles if c["alarms"]))
+    finally:
+        s.cleanup([host])
+
+
 SCENARIOS = {"disk-full-player": disk_full_player, "disk-full-host": disk_full_host, "copies": copies,
              "registration": registration, "connection": connection, "registration-again": registration_again,
-             "registration-fresh": registration_fresh, "p15": p15, "port-in-use": port_in_use}
+             "registration-fresh": registration_fresh, "p15": p15, "port-in-use": port_in_use,
+             "close-after-save": close_after_save}
 
 
 def main():
@@ -1202,6 +1252,7 @@ def main():
     parser.add_argument("--extra-saves", type=int, default=3, help="copies: Save now this many times before the launcher is ended")
     parser.add_argument("--kills", type=int, default=10, help="registration: killed attempts")
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--cycles", type=int, default=8, help="close-after-save: play, Save now and close this many times")
     parser.add_argument("--reuse", action="store_true", help="registration-again: continue in an earlier run's --work")
     parser.add_argument("--linux-app", nargs=2, metavar=("INSTALLATION", "PROFILE"), help=argparse.SUPPRESS)
     args = parser.parse_args()

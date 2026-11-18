@@ -47,6 +47,10 @@ TRADE_SAVE_WAIT = 60.0
 # its launcher's own start-up save is under way, and one refusal left the result's effects unsaved).
 HOST_SAVE_BUSY_SECONDS = 30.0
 HOST_SAVE_BUSY_RETRY = 0.5
+# KNOWN_ISSUES MS-259: how long, after the game's own link ended with nothing saving, the status waits for the game's
+# exit before it says the connection was lost or saving stopped. At a normal close the link ends a moment before the
+# exit is seen (0.2 s in the audit's run).
+LINK_CLOSE_WAIT_SECONDS = 3.0
 _MESSAGES = {
     "invalid_configuration": "The development launcher configuration is invalid.",
     "installation_changed": "The installed game differs from its application pins.",
@@ -389,6 +393,9 @@ class LauncherSession:
         # that finished.
         self.last_save_error = None
         self._idle_save_disconnect = self._autosave_dispatched = False
+        # MS-259: whether the running game's link to the companion was seen, when it was seen gone, and whether a seen
+        # exit is being settled (its outcome not yet published)
+        self._link_seen, self._link_gone_at, self._game_exiting = False, None, False
         self._settings = LauncherSettings()
         self._settings_busy = False
         self._autosave = self._autosave_task = None
@@ -559,13 +566,19 @@ class LauncherSession:
         emergency = self._emergency
         if emergency is not None and emergency.lost.is_set():
             return replace(value, code="host_loss_" + emergency.result.state)
+        if self._quiet_link_close():
+            # KNOWN_ISSUES MS-259: the game's own link ended with nothing saving and its exit is expected (a normal
+            # close): the last status stands, neither "connection lost" nor "needs recovery"; saving stays refused.
+            return value
         if self._save_failed:
             # A missing connection is not evidence that an uncertain save
             # completed. Keep this warning through game and session closure.
             return replace(value, code="game_recovery_held" if self._retain_interrupted_core()
                            else self._save_failed_code())
-        if self._open and self._binding is not None and current != self._binding:
-            # Observation only. No offline-play or post-disconnect action follows.
+        if (self._open and self._binding is not None and current != self._binding
+                and value.state is not SessionState.FINISHED):
+            # Observation only. No offline-play or post-disconnect action follows. A finished game's outcome stands
+            # (MS-259: the companion leaves the world when its game closes; that is not a lost connection).
             code = "connection_lost" if current is None else "session_changed"
             state = value.state if value.state in {SessionState.RUNNING, SessionState.RECOVERING} else SessionState.BLOCKED
             return replace(value, state=state, code=code)
@@ -1062,6 +1075,7 @@ class LauncherSession:
                 async with self._runtime.open() as game:
                     self._played = True
                     self._game = game
+                    self._link_seen, self._link_gone_at, self._game_exiting = False, None, False
                     self._revision = game.startup.mirror.revision
                     self._saved_revision, self._saved_at = self._revision, None
                     recovered_trade = getattr(game.startup, "trade_result", None)
@@ -1086,6 +1100,7 @@ class LauncherSession:
                         # Stop accepting new requests before draining the one
                         # already dispatched, while the native file lease remains
                         # owned by PlayerRuntime. Closing a game is not a save.
+                        self._game_exiting = True         # MS-259: until this exit's outcome is published
                         self._game = None
                         self._autosave_wake.set()
                         if self._battle_recovery_task is not None and not self._battle_recovery_task.done():
@@ -1133,6 +1148,7 @@ class LauncherSession:
                 # IPC can close before process exit is observed. Only confirmed
                 # normal exit clears an idle-only loss; this does not save.
                 self._save_failed = self._idle_save_disconnect = self._save_host_storage = False
+            self._game_exiting = False
             self._publish(SessionState.FINISHED, "trade_recovery_reopen" if self._trade_close_review is not None
                           else self._save_failed_code() if self._save_failed else "game_closed", revision=self._revision,
                           exit_code=result)
@@ -1825,7 +1841,36 @@ class LauncherSession:
         if host_storage and not self._save_failed:
             self._save_host_storage = True
         self._save_failed = True
+        if self._idle_save_disconnect and self._game is not None:
+            self._link_seen = True        # an idle loss is the autosave's report: the game's link was there
+        if self._idle_save_disconnect and self._quiet_link_close():
+            # KNOWN_ISSUES MS-259: the game's link ended at what looks like a normal close; the status says so only if
+            # the game still runs after LINK_CLOSE_WAIT_SECONDS (or exits otherwise). Saving is refused from now.
+            return
         self._publish(SessionState.RUNNING, self._save_failed_code(), revision=self._revision)
+
+    def _quiet_link_close(self):
+        """KNOWN_ISSUES MS-259: whether the status keeps its last code because the game's own link to its companion
+        ended with nothing saving and the game's exit is expected: while a seen exit is being settled, or for
+        LINK_CLOSE_WAIT_SECONDS after the link was seen gone with the game process still running (a link not yet made,
+        as a game starts, is not a link gone). An uncertain save is never quieted."""
+        if self._save_failed and not self._idle_save_disconnect:
+            return False
+        if self._game_exiting:
+            return self._save_is_idle()
+        c, game = self._companion, self._game
+        if c is None or game is None or game.process.returncode is not None or self._closing:
+            self._link_gone_at = None
+            return False
+        if getattr(c, "_bridge", None) is not None:
+            self._link_seen, self._link_gone_at = True, None
+            return False
+        if not self._link_seen:
+            return False
+        now = time.monotonic()
+        if self._link_gone_at is None:
+            self._link_gone_at = now
+        return now - self._link_gone_at < LINK_CLOSE_WAIT_SECONDS and self._save_is_idle()
 
     def _save_failed_code(self):
         """A stopped save's status: "save_host_storage" when the host refused the commit because its world could not
@@ -1877,6 +1922,8 @@ class LauncherSession:
                     await self._stop_autosave()
                 else:
                     c = self._companion
+                    if c._bridge is not None:
+                        self._link_seen = True    # MS-259: the running game's link was made
                     if self._autosave is None and c._bridge is not None and c._bridge.save_capable:
                         incarnation = c.save_incarnation
                         if self._save_incarnation is not None and incarnation != self._save_incarnation:
